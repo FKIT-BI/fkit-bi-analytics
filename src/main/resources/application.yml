@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: fkit-bi-analytics
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/fkit_bi}
+    username: ${SPRING_DATASOURCE_USERNAME:fkit_bi}
+    password: ${SPRING_DATASOURCE_PASSWORD:fkit_bi}
+  flyway:
+    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+info:
+  fkit:
+    git-sha: ${FKIT_BI_GIT_SHA:unknown}
