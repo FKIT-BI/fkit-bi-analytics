@@ -16,6 +16,11 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
 info:
   fkit:
     git-sha: ${FKIT_BI_GIT_SHA:unknown}
