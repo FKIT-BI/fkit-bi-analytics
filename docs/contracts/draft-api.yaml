@@ -1,0 +1,878 @@
+openapi: 3.1.0
+info:
+  title: FKIT-BI API
+  version: 0.2.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: |
+    Контракт WEB-BI ↔ BI-service.
+    machine controller — справочники, CRUD предприятий/линий/машин, ввод инцидентов.
+    calculate service — интервалы состояний, аналитика, телеметрия.
+    Время — ISO 8601 со смещением (2026-09-29T08:00:00+03:00), длительности — секунды,
+    доли — числа 0..1. Зеркало на фронте: src/shared/api/contract.ts.
+servers:
+  - url: /
+security: []
+tags:
+  - name: enterprises
+    description: machine controller
+  - name: lines
+    description: machine controller
+  - name: machines
+    description: machine controller
+  - name: loss-reasons
+    description: machine controller
+  - name: incidents
+    description: machine controller
+  - name: intervals
+    description: calculate service
+  - name: analytics
+    description: calculate service
+  - name: telemetry
+    description: calculate service
+
+paths:
+  /api/enterprises:
+    get:
+      tags: [enterprises]
+      operationId: listEnterprises
+      summary: Список предприятий
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Enterprise' } }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [enterprises]
+      operationId: createEnterprise
+      summary: Создать предприятие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnterpriseInput' }
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/enterprises/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [enterprises]
+      operationId: getEnterprise
+      summary: Предприятие
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [enterprises]
+      operationId: updateEnterprise
+      summary: Изменить предприятие (название, часовой пояс, график смен)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnterpriseInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/enterprises/{id}/lines:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [lines]
+      operationId: listLines
+      summary: Линии предприятия, по порядку
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Line' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [lines]
+      operationId: createLine
+      summary: Добавить линию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInput' }
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Line' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/lines/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [lines]
+      operationId: getLine
+      summary: Линия
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Line' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [lines]
+      operationId: updateLine
+      summary: Переименовать линию или изменить порядок
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Line' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/lines/{id}/machines:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [machines]
+      operationId: listMachines
+      summary: Машины линии, по порядку (без архивных)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Machine' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [machines]
+      operationId: createMachine
+      summary: Добавить машину на линию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineInput' }
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/machines/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [machines]
+      operationId: getMachine
+      summary: Машина с конфигурацией
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [machines]
+      operationId: updateMachine
+      summary: Изменить машину — параметры, OPC-теги, правила состояний, пороги, перенос на другую линию, архивирование
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/loss-reasons:
+    get:
+      tags: [loss-reasons]
+      operationId: listLossReasons
+      summary: Справочник причин потерь
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/LossReason' } }
+    post:
+      tags: [loss-reasons]
+      operationId: createLossReason
+      summary: Добавить причину
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LossReasonInput' }
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/loss-reasons/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [loss-reasons]
+      operationId: updateLossReason
+      summary: Изменить причину
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LossReasonInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/incidents:
+    get:
+      tags: [incidents]
+      operationId: listIncidents
+      summary: Инциденты, пересекающие период, новые сверху
+      parameters:
+        - name: machineId
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Incident' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [incidents]
+      operationId: createIncident
+      summary: Зарегистрировать инцидент
+      description: |
+        Валидация: конец позже начала, время не в будущем, комментарий ≤ 500 символов.
+        Причина инцидента подменяет причину пересекающихся интервалов простоя (IDLE, DOWN).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentInput' }
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/incidents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [incidents]
+      operationId: getIncident
+      summary: Инцидент
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [incidents]
+      operationId: updateIncident
+      summary: Изменить инцидент
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [incidents]
+      operationId: deleteIncident
+      summary: Удалить инцидент
+      responses:
+        '204':
+          description: Удалено
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/machines/{id}/intervals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/From'
+      - $ref: '#/components/parameters/To'
+      - $ref: '#/components/parameters/Shift'
+    get:
+      tags: [intervals]
+      operationId: listIntervals
+      summary: Интервалы состояний машины
+      description: Не перекрываются и покрывают период без дыр; текущий интервал открыт (to = null).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/StateInterval' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/analytics/summary:
+    get:
+      tags: [analytics]
+      operationId: getSummary
+      summary: Метрики за период и за предыдущий период той же длины
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Shift'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Summary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/analytics/current-states:
+    get:
+      tags: [analytics]
+      operationId: listCurrentStates
+      summary: Текущее состояние каждой машины предприятия
+      parameters:
+        - name: enterpriseId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/CurrentState' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/analytics/losses/timeseries:
+    get:
+      tags: [analytics]
+      operationId: getLossesTimeseries
+      summary: Потери по причинам в разрезе временных бакетов
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Shift'
+        - name: bucket
+          in: query
+          required: true
+          schema: { type: string, enum: [hour, shift, day] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/LossesBucket' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/analytics/losses/pareto:
+    get:
+      tags: [analytics]
+      operationId: getLossesPareto
+      summary: Топ причин потерь по суммарной длительности
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Shift'
+        - name: top
+          in: query
+          schema: { type: integer, minimum: 1, default: 5 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ParetoRow' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/analytics/chronometry:
+    get:
+      tags: [analytics]
+      operationId: getChronometry
+      summary: Хронометраж топа потерь за смену
+      parameters:
+        - name: machineId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: date
+          in: query
+          required: true
+          description: Локальная дата начала смены
+          schema: { type: string, format: date, example: '2026-09-29' }
+        - name: shift
+          in: query
+          required: true
+          schema: { type: string, enum: [day, night] }
+        - name: top
+          in: query
+          schema: { type: integer, minimum: 1, default: 5 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Chronometry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/machines/{id}/telemetry/latest:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [telemetry]
+      operationId: getTelemetryLatest
+      summary: Текущие значения сигналов
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetryLatest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/machines/{id}/telemetry/series:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: signal
+        in: query
+        required: true
+        schema: { type: string, example: speed }
+      - $ref: '#/components/parameters/From'
+      - $ref: '#/components/parameters/To'
+    get:
+      tags: [telemetry]
+      operationId: getTelemetrySeries
+      summary: Ряд значений сигнала (не более ~720 точек)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySeries' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    From:
+      name: from
+      in: query
+      required: true
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      required: true
+      schema: { type: string, format: date-time }
+    Shift:
+      name: shift
+      in: query
+      schema: { $ref: '#/components/schemas/ShiftFilter' }
+    Scope:
+      name: scope
+      in: query
+      required: true
+      schema: { $ref: '#/components/schemas/Scope' }
+    ScopeId:
+      name: id
+      in: query
+      required: true
+      description: id предприятия, линии или машины — по scope
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: Ошибка сервера
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+
+    StateCode:
+      type: string
+      enum: [RUN, IDLE, DOWN, PLANNED_STOP, SETUP, OFFLINE]
+    Scope:
+      type: string
+      enum: [enterprise, line, machine]
+    ShiftFilter:
+      type: string
+      enum: [all, day, night]
+      default: all
+
+    ShiftDef:
+      type: object
+      required: [id, name, start, end]
+      properties:
+        id: { type: string, example: day }
+        name: { type: string, example: День }
+        start: { type: string, pattern: '^\d{2}:\d{2}$', example: '08:00' }
+        end: { type: string, pattern: '^\d{2}:\d{2}$', example: '20:00' }
+
+    EnterpriseInput:
+      type: object
+      required: [name, timezone, shiftSchedule]
+      properties:
+        name: { type: string }
+        timezone: { type: string, example: Europe/Moscow }
+        shiftSchedule:
+          type: array
+          items: { $ref: '#/components/schemas/ShiftDef' }
+    Enterprise:
+      allOf:
+        - $ref: '#/components/schemas/EnterpriseInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+
+    LineInput:
+      type: object
+      required: [name, order]
+      properties:
+        name: { type: string }
+        order: { type: integer }
+    Line:
+      allOf:
+        - $ref: '#/components/schemas/LineInput'
+        - type: object
+          required: [id, enterpriseId]
+          properties:
+            id: { type: string }
+            enterpriseId: { type: string }
+
+    OpcTag:
+      type: object
+      required: [tag, signal, label, unit, min, max]
+      properties:
+        tag: { type: string, example: 'ns=2;s=LINE-1.M-101.Speed' }
+        signal: { type: string, example: speed }
+        label: { type: string }
+        unit: { type: string }
+        min: { type: number }
+        max: { type: number }
+    StateRule:
+      type: object
+      required: [state, rule]
+      properties:
+        state: { $ref: '#/components/schemas/StateCode' }
+        rule: { type: string, example: скорость < 5% номинала дольше 2 мин }
+    Thresholds:
+      type: object
+      required: [good, warn]
+      properties:
+        good: { type: number, example: 0.85 }
+        warn: { type: number, example: 0.6 }
+    MachineInput:
+      type: object
+      required: [lineId, name, type, inventoryNo, nominalRate, order, params, opcTags, stateRules, thresholds]
+      properties:
+        lineId: { type: string }
+        name: { type: string }
+        type: { type: string }
+        inventoryNo: { type: string }
+        nominalRate: { type: number, description: шт/ч }
+        order: { type: integer }
+        archived: { type: boolean, default: false }
+        params:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string }
+        opcTags:
+          type: array
+          items: { $ref: '#/components/schemas/OpcTag' }
+        stateRules:
+          type: array
+          items: { $ref: '#/components/schemas/StateRule' }
+        thresholds:
+          type: object
+          required: [availability]
+          properties:
+            availability: { $ref: '#/components/schemas/Thresholds' }
+    Machine:
+      allOf:
+        - $ref: '#/components/schemas/MachineInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+
+    LossReasonInput:
+      type: object
+      required: [name, group, isPlanned, color]
+      properties:
+        name: { type: string }
+        group: { type: string }
+        isPlanned: { type: boolean }
+        color: { type: string, example: '#e5534b' }
+    LossReason:
+      allOf:
+        - $ref: '#/components/schemas/LossReasonInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+
+    IncidentInput:
+      type: object
+      required: [machineId, from, to, reasonId, comment, author]
+      properties:
+        machineId: { type: string }
+        from: { type: string, format: date-time }
+        to:
+          type: [string, 'null']
+          format: date-time
+          description: null — простой ещё идёт
+        reasonId: { type: string }
+        comment: { type: string, maxLength: 500 }
+        author: { type: string }
+    Incident:
+      allOf:
+        - $ref: '#/components/schemas/IncidentInput'
+        - type: object
+          required: [id, createdAt]
+          properties:
+            id: { type: string }
+            createdAt: { type: string, format: date-time }
+
+    IntervalIncident:
+      type: object
+      required: [id, comment, author]
+      properties:
+        id: { type: string }
+        comment: { type: string }
+        author: { type: string }
+    StateInterval:
+      type: object
+      required: [machineId, stateCode, from, to, reasonId]
+      properties:
+        machineId: { type: string }
+        stateCode: { $ref: '#/components/schemas/StateCode' }
+        from: { type: string, format: date-time }
+        to: { type: [string, 'null'], format: date-time }
+        reasonId:
+          type: [string, 'null']
+          description: null — «Не указано»
+        incident:
+          oneOf:
+            - $ref: '#/components/schemas/IntervalIncident'
+            - type: 'null'
+
+    Metrics:
+      type: object
+      required: [calendarSec, runSec, unplannedSec, plannedSec, offlineSec, availability, performance, output, stops, mtbfMin, mttrMin]
+      properties:
+        calendarSec: { type: number, description: T — длина периода (только прошедшая часть) }
+        runSec: { type: number, description: сумма RUN }
+        unplannedSec: { type: number, description: сумма DOWN + IDLE }
+        plannedSec: { type: number, description: сумма PLANNED_STOP + SETUP }
+        offlineSec: { type: number, description: сумма OFFLINE + время без данных }
+        availability: { type: [number, 'null'], description: 'RUN / (T − плановый − OFFLINE)' }
+        performance: { type: [number, 'null'], description: 'выпуск / (nominalRate × RUN)' }
+        output: { type: [number, 'null'], description: 'фактический выпуск, шт' }
+        stops: { type: integer, description: 'число переходов RUN → DOWN/IDLE' }
+        mtbfMin: { type: [number, 'null'], description: 'RUN / stops, мин' }
+        mttrMin: { type: [number, 'null'], description: 'DOWN / stops, мин' }
+    Summary:
+      type: object
+      required: [scope, id, from, to, current, previous]
+      properties:
+        scope: { $ref: '#/components/schemas/Scope' }
+        id: { type: string }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        current: { $ref: '#/components/schemas/Metrics' }
+        previous: { $ref: '#/components/schemas/Metrics' }
+        statesNow:
+          type: object
+          description: для enterprise и line — сколько машин сейчас в каждом состоянии
+          additionalProperties: { type: integer }
+    CurrentState:
+      type: object
+      required: [machineId, stateCode, since, reasonId]
+      properties:
+        machineId: { type: string }
+        stateCode: { $ref: '#/components/schemas/StateCode' }
+        since: { type: string, format: date-time }
+        reasonId: { type: [string, 'null'] }
+
+    LossesBucket:
+      type: object
+      required: [bucketStart, bucketEnd, byReason]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        bucketEnd: { type: string, format: date-time }
+        byReason:
+          type: object
+          description: reasonId → секунды; ключ unknown — простои без причины
+          additionalProperties: { type: number }
+    ParetoRow:
+      type: object
+      required: [reasonId, sec, share, cumShare]
+      properties:
+        reasonId: { type: string }
+        sec: { type: number }
+        share: { type: number }
+        cumShare: { type: number }
+
+    ChronoInterval:
+      type: object
+      required: [stateCode, from, to, reasonId]
+      properties:
+        stateCode: { $ref: '#/components/schemas/StateCode' }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        reasonId: { type: [string, 'null'] }
+        incident:
+          oneOf:
+            - $ref: '#/components/schemas/IntervalIncident'
+            - type: 'null'
+    Chronometry:
+      type: object
+      required: [shiftStart, shiftEnd, states, reasons]
+      properties:
+        shiftStart: { type: string, format: date-time }
+        shiftEnd: { type: string, format: date-time }
+        states:
+          type: array
+          items: { $ref: '#/components/schemas/ChronoInterval' }
+        reasons:
+          type: array
+          items:
+            type: object
+            required: [reasonId, totalSec, intervals]
+            properties:
+              reasonId: { type: string }
+              totalSec: { type: number }
+              intervals:
+                type: array
+                items: { $ref: '#/components/schemas/ChronoInterval' }
+
+    TelemetryLatest:
+      type: object
+      required: [machineId, ts, values]
+      properties:
+        machineId: { type: string }
+        ts: { type: string, format: date-time }
+        values:
+          type: object
+          description: signal → значение (набор сигналов — из opcTags машины)
+          additionalProperties: { type: number }
+    TelemetrySeries:
+      type: object
+      required: [signal, points]
+      properties:
+        signal: { type: string }
+        points:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - { type: string, format: date-time }
+              - { type: number }
+            minItems: 2
+            maxItems: 2

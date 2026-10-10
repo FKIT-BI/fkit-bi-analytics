@@ -1,0 +1,2872 @@
+openapi: 3.1.0
+info:
+  title: FKIT BI Analytics API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: |
+    Публичный API конфигурации, оперативного мониторинга, аналитики,
+    ручных инцидентов и фонового перерасчёта FKIT BI.
+    Raw telemetry ingestion и управление generator вынесены за границы контракта.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+tags:
+  - { name: enterprises, description: Предприятия }
+  - { name: shifts, description: Сменные расписания предприятия }
+  - { name: loss-reasons, description: Справочник причин потерь }
+  - { name: lines, description: Производственные линии }
+  - { name: machines, description: Машины и активация }
+  - { name: components, description: Дерево компонентов машины }
+  - { name: telemetry-signals, description: Конфигурация сигналов }
+  - { name: state-configuration, description: Декларативные правила состояния }
+  - { name: operations, description: Операционные read models }
+  - { name: telemetry, description: Текущая и историческая телеметрия }
+  - { name: analytics, description: KPI и временные ряды }
+  - { name: losses, description: Потери и Парето }
+  - { name: chronometry, description: Хронометраж смен }
+  - { name: intervals, description: Эффективные интервалы состояний }
+  - { name: incidents, description: Ручные инциденты }
+  - { name: recalculations, description: Фоновый перерасчёт состояний }
+
+paths:
+  /enterprises:
+    get:
+      tags: [enterprises]
+      operationId: listEnterprises
+      summary: Список предприятий
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница предприятий
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnterprisePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [enterprises]
+      operationId: createEnterprise
+      summary: Создать предприятие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnterpriseCreate' }
+      responses:
+        '201':
+          description: Предприятие создано
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /enterprises/{enterpriseId}:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [enterprises]
+      operationId: getEnterprise
+      summary: Получить предприятие
+      responses:
+        '200':
+          description: Предприятие
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [enterprises]
+      operationId: updateEnterprise
+      summary: Изменить предприятие
+      description: Timezone блокируется после появления временных эксплуатационных данных.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnterpriseUpdate' }
+      responses:
+        '200':
+          description: Обновлённое предприятие
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /enterprises/{enterpriseId}/status:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    put:
+      tags: [enterprises]
+      operationId: updateEnterpriseStatus
+      summary: Изменить собственный статус предприятия
+      description: Не изменяет статусы линий, машин и других дочерних объектов.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Предприятие с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enterprise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /enterprises/{enterpriseId}/shifts:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [shifts]
+      operationId: listShifts
+      summary: Список смен предприятия
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: validOn
+          in: query
+          description: Оставить определения, применимые к локальной дате.
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница смен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [shifts]
+      operationId: createShift
+      summary: Создать смену
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftCreate' }
+      responses:
+        '201':
+          description: Смена создана
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /shifts/{shiftId}:
+    parameters:
+      - $ref: '#/components/parameters/ShiftPathId'
+    get:
+      tags: [shifts]
+      operationId: getShift
+      summary: Получить смену
+      responses:
+        '200':
+          description: Смена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [shifts]
+      operationId: updateShift
+      summary: Изменить смену
+      description: Использованные границы и validFrom блокируются согласно календарю смен.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftUpdate' }
+      responses:
+        '200':
+          description: Обновлённая смена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /shifts/{shiftId}/status:
+    parameters:
+      - $ref: '#/components/parameters/ShiftPathId'
+    put:
+      tags: [shifts]
+      operationId: updateShiftStatus
+      summary: Изменить статус смены
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Смена с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /enterprises/{enterpriseId}/loss-reasons:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [loss-reasons]
+      operationId: listLossReasons
+      summary: Список причин потерь предприятия
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/LossCategory' }
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница причин потерь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReasonPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [loss-reasons]
+      operationId: createLossReason
+      summary: Создать причину потерь
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LossReasonCreate' }
+      responses:
+        '201':
+          description: Причина создана
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /loss-reasons/{lossReasonId}:
+    parameters:
+      - $ref: '#/components/parameters/LossReasonId'
+    get:
+      tags: [loss-reasons]
+      operationId: getLossReason
+      summary: Получить причину потерь
+      responses:
+        '200':
+          description: Причина потерь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [loss-reasons]
+      operationId: updateLossReason
+      summary: Изменить причину потерь
+      description: Category блокируется после первого использования.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LossReasonUpdate' }
+      responses:
+        '200':
+          description: Обновлённая причина
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /loss-reasons/{lossReasonId}/status:
+    parameters:
+      - $ref: '#/components/parameters/LossReasonId'
+    put:
+      tags: [loss-reasons]
+      operationId: updateLossReasonStatus
+      summary: Изменить статус причины потерь
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Причина с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossReason' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /enterprises/{enterpriseId}/lines:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [lines]
+      operationId: listLines
+      summary: Список линий предприятия
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница линий
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLinePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [lines]
+      operationId: createLine
+      summary: Создать линию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductionLineCreate' }
+      responses:
+        '201':
+          description: Линия создана
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /lines/{lineId}:
+    parameters:
+      - $ref: '#/components/parameters/LineId'
+    get:
+      tags: [lines]
+      operationId: getLine
+      summary: Получить линию
+      responses:
+        '200':
+          description: Линия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [lines]
+      operationId: updateLine
+      summary: Изменить линию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductionLineUpdate' }
+      responses:
+        '200':
+          description: Обновлённая линия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /lines/{lineId}/status:
+    parameters:
+      - $ref: '#/components/parameters/LineId'
+    put:
+      tags: [lines]
+      operationId: updateLineStatus
+      summary: Изменить собственный статус линии
+      description: Не меняет статусы машин.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Линия с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /enterprises/{enterpriseId}/machines:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [machines]
+      operationId: listEnterpriseMachines
+      summary: Список машин предприятия
+      parameters:
+        - name: lineId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignment
+          in: query
+          schema:
+            type: string
+            enum: [ALL, ASSIGNED, UNASSIGNED]
+            default: ALL
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница машин
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MachinePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [machines]
+      operationId: createMachine
+      summary: Создать отключённую машину
+      description: Optional lineId позволяет создать назначенную или свободную машину.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineCreate' }
+      responses:
+        '201':
+          description: Машина создана в DISABLED
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /lines/{lineId}/machines:
+    parameters:
+      - $ref: '#/components/parameters/LineId'
+    get:
+      tags: [machines]
+      operationId: listLineMachines
+      summary: Список машин линии
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница машин линии
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MachinePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /machines/{machineId}:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [machines]
+      operationId: getMachine
+      summary: Получить машину
+      responses:
+        '200':
+          description: Машина
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [machines]
+      operationId: updateMachine
+      summary: Изменить паспортные и производственные поля машины
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineUpdate' }
+      responses:
+        '200':
+          description: Обновлённая машина
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /machines/{machineId}/status:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    put:
+      tags: [machines]
+      operationId: updateMachineStatus
+      summary: Активировать или отключить машину
+      description: Переход в ACTIVE атомарно повторяет activation readiness validation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Машина с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /machines/{machineId}/activation-readiness:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [machines]
+      operationId: getMachineActivationReadiness
+      summary: Проверить готовность машины к активации
+      responses:
+        '200':
+          description: Полный список ошибок и предупреждений
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivationReadiness' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /lines/{lineId}/machine-assignments:
+    parameters:
+      - $ref: '#/components/parameters/LineId'
+    post:
+      tags: [machines]
+      operationId: assignMachinesToLine
+      summary: Атомарно назначить свободные машины линии
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineAssignmentsCreate' }
+      responses:
+        '200':
+          description: Назначенные машины в порядке запроса
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Machine' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /machines/{machineId}/components:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [components]
+      operationId: listMachineComponents
+      summary: Получить плоский список компонентов машины
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+      responses:
+        '200':
+          description: Компоненты в порядке parent, sortOrder, code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [components]
+      operationId: createComponent
+      summary: Создать компонент внутри машины
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentCreate' }
+      responses:
+        '201':
+          description: Компонент создан
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /components/{componentId}:
+    parameters:
+      - $ref: '#/components/parameters/ComponentId'
+    get:
+      tags: [components]
+      operationId: getComponent
+      summary: Получить компонент
+      responses:
+        '200':
+          description: Компонент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [components]
+      operationId: updateComponent
+      summary: Изменить компонент без parent и status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentUpdate' }
+      responses:
+        '200':
+          description: Обновлённый компонент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /components/{componentId}/parent:
+    parameters:
+      - $ref: '#/components/parameters/ComponentId'
+    put:
+      tags: [components]
+      operationId: updateComponentParent
+      summary: Изменить родителя компонента внутри машины
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentParentUpdate' }
+      responses:
+        '200':
+          description: Компонент с новым parent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /components/{componentId}/status:
+    parameters:
+      - $ref: '#/components/parameters/ComponentId'
+    put:
+      tags: [components]
+      operationId: updateComponentStatus
+      summary: Изменить собственный статус компонента
+      description: Не изменяет status дочерних компонентов или сигналов.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Компонент с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /machines/{machineId}/telemetry-signals:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [telemetry-signals]
+      operationId: listTelemetrySignals
+      summary: Список сигналов машины
+      parameters:
+        - name: componentId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: semanticCode
+          in: query
+          schema: { type: string }
+        - name: signalKind
+          in: query
+          schema: { $ref: '#/components/schemas/SignalKind' }
+        - name: featured
+          in: query
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница сигналов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySignalPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [telemetry-signals]
+      operationId: createTelemetrySignal
+      summary: Создать сигнал машины
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TelemetrySignalCreate' }
+      responses:
+        '201':
+          description: Сигнал создан
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySignal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /telemetry-signals/{signalId}:
+    parameters:
+      - $ref: '#/components/parameters/SignalId'
+    get:
+      tags: [telemetry-signals]
+      operationId: getTelemetrySignal
+      summary: Получить сигнал
+      responses:
+        '200':
+          description: Сигнал
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySignal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [telemetry-signals]
+      operationId: updateTelemetrySignal
+      summary: Изменить допустимые поля сигнала
+      description: Смысловые поля блокируются после первого raw measurement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TelemetrySignalUpdate' }
+      responses:
+        '200':
+          description: Обновлённый сигнал
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySignal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /telemetry-signals/{signalId}/status:
+    parameters:
+      - $ref: '#/components/parameters/SignalId'
+    put:
+      tags: [telemetry-signals]
+      operationId: updateTelemetrySignalStatus
+      summary: Изменить статус сигнала
+      description: Отключение referenced signal активной машины возвращает конфликт.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Сигнал с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySignal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /machines/{machineId}/state-configuration:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [state-configuration]
+      operationId: getMachineStateConfiguration
+      summary: Получить текущую конфигурацию определения состояния
+      responses:
+        '200':
+          description: Текущая конфигурация
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MachineStateConfiguration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [state-configuration]
+      operationId: replaceMachineStateConfiguration
+      summary: Атомарно заменить текущую конфигурацию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineStateConfigurationInput' }
+      responses:
+        '200':
+          description: Нормализованная сохранённая конфигурация
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MachineStateConfiguration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /machines/{machineId}/state-configuration/validate:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    post:
+      tags: [state-configuration]
+      operationId: validateMachineStateConfiguration
+      summary: Проверить конфигурацию без сохранения
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MachineStateConfigurationInput' }
+      responses:
+        '200':
+          description: Результат проверки и нормализованный документ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateConfigurationValidation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /enterprises/{enterpriseId}/equipment-tree:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [operations]
+      operationId: getEquipmentTree
+      summary: Получить компактное дерево линий и машин
+      description: Не содержит компонентов, сигналов, текущих состояний или KPI.
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: Дерево и отдельная группа неназначенных машин
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentTree' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /enterprises/{enterpriseId}/operations/overview:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [operations]
+      operationId: getEnterpriseOperationsOverview
+      summary: Получить текущий обзор машин предприятия
+      parameters:
+        - name: lineId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: includeDisabled
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Current cards и агрегированные количества состояний
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationsOverview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /machines/{machineId}/operations/current:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [operations]
+      operationId: getMachineOperationsCurrent
+      summary: Получить оперативную карточку машины
+      description: Возвращает паспортный header, effective current state и featured signal values.
+      responses:
+        '200':
+          description: Оперативная карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MachineOperationsCurrent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /machines/{machineId}/telemetry/current:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [telemetry]
+      operationId: getMachineTelemetryCurrent
+      summary: Получить текущие значения сигналов машины
+      parameters:
+        - name: signalId
+          in: query
+          description: Повторяемый UUID сигнала; при отсутствии возвращаются все подходящие сигналы.
+          schema:
+            type: array
+            maxItems: 100
+            items: { type: string, format: uuid }
+          style: form
+          explode: true
+        - name: featuredOnly
+          in: query
+          schema: { type: boolean, default: false }
+        - name: includeDisabled
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Текущие проекции сигналов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentTelemetryResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /analytics/summary:
+    get:
+      tags: [analytics]
+      operationId: getAnalyticsSummary
+      summary: Получить показатели периода и optional previous period
+      description: |
+        Принимает from+to с optional shiftId либо shiftId+shiftDate без from/to.
+        compare=PREVIOUS_PERIOD использует предыдущий диапазон той же длины или предыдущую occurrence той же Shift.
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/ShiftQueryId'
+        - $ref: '#/components/parameters/ShiftDate'
+        - name: compare
+          in: query
+          schema:
+            type: string
+            enum: [NONE, PREVIOUS_PERIOD]
+            default: PREVIOUS_PERIOD
+      responses:
+        '200':
+          description: Сводка показателей
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /analytics/metrics/timeseries:
+    get:
+      tags: [analytics]
+      operationId: getMetricTimeseries
+      summary: Получить временной ряд производственных показателей
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - $ref: '#/components/parameters/ShiftQueryId'
+        - $ref: '#/components/parameters/Resolution'
+      responses:
+        '200':
+          description: Metric timeseries не более 1000 точек
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricTimeseries' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /machines/{machineId}/telemetry/series:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [telemetry]
+      operationId: getTelemetrySeries
+      summary: Получить агрегированный числовой ряд одного сигнала
+      description: STATE и ненумерический signal возвращают несовместимость запроса.
+      parameters:
+        - name: signalId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - $ref: '#/components/parameters/Resolution'
+      responses:
+        '200':
+          description: Ряд GAUGE либо COUNTER не более 720 точек
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetrySeries' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /analytics/losses/timeseries:
+    get:
+      tags: [losses]
+      operationId: getLossTimeseries
+      summary: Получить потери по времени и причинам
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - $ref: '#/components/parameters/ShiftQueryId'
+        - $ref: '#/components/parameters/Resolution'
+        - $ref: '#/components/parameters/TopReasons'
+      responses:
+        '200':
+          description: Loss timeseries не более 1000 точек
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossTimeseries' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /analytics/losses/pareto:
+    get:
+      tags: [losses]
+      operationId: getLossPareto
+      summary: Получить Парето причин потерь
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/ScopeId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/ShiftQueryId'
+        - $ref: '#/components/parameters/ShiftDate'
+        - $ref: '#/components/parameters/TopReasons'
+      responses:
+        '200':
+          description: Pareto rows
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LossPareto' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /machines/{machineId}/chronometry:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [chronometry]
+      operationId: getMachineChronometry
+      summary: Получить хронометраж смен локальной даты
+      description: Без shiftId возвращает все occurrences, начинающиеся в shiftDate.
+      parameters:
+        - name: shiftDate
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/ShiftQueryId'
+      responses:
+        '200':
+          description: Хронометраж не более 10000 intervals во всём ответе
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChronometryResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /machines/{machineId}/state-intervals:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [intervals]
+      operationId: listMachineStateIntervals
+      summary: Получить effective state intervals для таблицы
+      parameters:
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - name: state
+          in: query
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/MachineState' }
+          style: form
+          explode: true
+        - name: lossReasonId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: unclassifiedOnly
+          in: query
+          schema: { type: boolean, default: false }
+        - name: lossOnly
+          in: query
+          schema: { type: boolean, default: false }
+        - name: source
+          in: query
+          schema: { $ref: '#/components/schemas/StateSource' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor page интервалов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateIntervalPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /enterprises/{enterpriseId}/incidents:
+    parameters:
+      - $ref: '#/components/parameters/EnterpriseId'
+    get:
+      tags: [incidents]
+      operationId: listEnterpriseIncidents
+      summary: Получить общий журнал инцидентов предприятия
+      parameters:
+        - name: machineId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: lineId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: effectType
+          in: query
+          schema: { $ref: '#/components/schemas/IncidentEffectType' }
+        - name: lossReasonId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: ongoing
+          in: query
+          schema: { type: boolean }
+        - name: includeCancelled
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor page инцидентов предприятия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncidentPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /machines/{machineId}/incidents:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [incidents]
+      operationId: listMachineIncidents
+      summary: Получить журнал ручных инцидентов машины
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: effectType
+          in: query
+          schema: { $ref: '#/components/schemas/IncidentEffectType' }
+        - name: lossReasonId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: ongoing
+          in: query
+          schema: { type: boolean }
+        - name: includeCancelled
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor page инцидентов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncidentPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [incidents]
+      operationId: createManualIncident
+      summary: Создать ручной инцидент
+      description: Повтор с тем же Idempotency-Key и тем же body возвращает результат исходного создания; тот же ключ с другим body возвращает 409 IDEMPOTENCY_KEY_REUSED.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualIncidentCreate' }
+      responses:
+        '201':
+          description: Инцидент создан; зависимая аналитика актуализируется асинхронно
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /incidents/{incidentId}:
+    parameters:
+      - $ref: '#/components/parameters/IncidentId'
+    get:
+      tags: [incidents]
+      operationId: getManualIncident
+      summary: Получить ручной инцидент
+      responses:
+        '200':
+          description: Инцидент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [incidents]
+      operationId: updateManualIncident
+      summary: Изменить границы, эффекты или комментарий
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualIncidentUpdate' }
+      responses:
+        '200':
+          description: Обновлённый инцидент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      tags: [incidents]
+      operationId: cancelManualIncident
+      summary: Мягко отменить инцидент
+      description: Idempotent; физическая строка и история сохраняются.
+      responses:
+        '204': { description: Инцидент отменён или уже был отменён }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /incidents/{incidentId}/close:
+    parameters:
+      - $ref: '#/components/parameters/IncidentId'
+    put:
+      tags: [incidents]
+      operationId: closeManualIncident
+      summary: Закрыть ongoing incident
+      description: Повтор с той же границей idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualIncidentClose' }
+      responses:
+        '200':
+          description: Закрытый инцидент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualIncident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /machines/{machineId}/state-recalculations:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [recalculations]
+      operationId: listMachineStateRecalculations
+      summary: Получить журнал пользовательских перерасчётов
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RecalculationStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor page jobs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateRecalculationPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [recalculations]
+      operationId: createStateRecalculation
+      summary: Запустить PERIOD или ALL перерасчёт
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StateRecalculationCreate' }
+      responses:
+        '202':
+          description: Job принят
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateRecalculation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /state-recalculations/{recalculationId}:
+    parameters:
+      - $ref: '#/components/parameters/RecalculationId'
+    get:
+      tags: [recalculations]
+      operationId: getStateRecalculation
+      summary: Получить состояние перерасчёта
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateRecalculation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    Location:
+      description: URI созданного ресурса
+      schema: { type: string, format: uri-reference }
+
+  parameters:
+    EnterpriseId:
+      name: enterpriseId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShiftPathId:
+      name: shiftId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LossReasonId:
+      name: lossReasonId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LineId:
+      name: lineId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MachineId:
+      name: machineId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ComponentId:
+      name: componentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SignalId:
+      name: signalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IncidentId:
+      name: incidentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RecalculationId:
+      name: recalculationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StatusFilter:
+      name: status
+      in: query
+      description: Без параметра возвращаются только ACTIVE ресурсы; укажите DISABLED для списка отключённых ресурсов.
+      schema:
+        allOf:
+          - $ref: '#/components/schemas/ConfigStatus'
+        default: ACTIVE
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Один ключ используется при повторах одного create-запроса; scope — authenticated user и operation.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    Search:
+      name: search
+      in: query
+      schema: { type: string, minLength: 1, maxLength: 100 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor из предыдущего ответа.
+      schema: { type: string, maxLength: 2048 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    Scope:
+      name: scope
+      in: query
+      required: true
+      schema: { $ref: '#/components/schemas/AnalyticsScope' }
+    ScopeId:
+      name: scopeId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    From:
+      name: from
+      in: query
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      schema: { type: string, format: date-time }
+    FromRequired:
+      name: from
+      in: query
+      required: true
+      schema: { type: string, format: date-time }
+    ToRequired:
+      name: to
+      in: query
+      required: true
+      schema: { type: string, format: date-time }
+    ShiftQueryId:
+      name: shiftId
+      in: query
+      schema: { type: string, format: uuid }
+    ShiftDate:
+      name: shiftDate
+      in: query
+      schema: { type: string, format: date }
+    Resolution:
+      name: resolution
+      in: query
+      schema: { $ref: '#/components/schemas/Resolution' }
+    TopReasons:
+      name: top
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+
+  responses:
+    BadRequest:
+      description: Некорректный JSON, query или сочетание параметров
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Нарушение доменного инварианта или конфликт текущего состояния; повтор Idempotency-Key с другим body возвращает IDEMPOTENCY_KEY_REUSED.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    UnprocessableEntity:
+      description: Ошибки полей или декларативной конфигурации
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: Непредвиденная ошибка
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    ConfigStatus:
+      type: string
+      enum: [ACTIVE, DISABLED]
+    MachineState:
+      type: string
+      enum: [RUN, IDLE, DOWN, SETUP, PLANNED_STOP, OFFLINE]
+    UserMachineState:
+      type: string
+      enum: [RUN, IDLE, DOWN, SETUP, PLANNED_STOP]
+    ManualStateOverride:
+      type: string
+      enum: [SETUP, PLANNED_STOP]
+    AnalyticsScope:
+      type: string
+      enum: [MACHINE, LINE, ENTERPRISE]
+    Resolution:
+      type: string
+      enum: [AUTO, 5m, 15m, 1h, 1d]
+      default: AUTO
+    AppliedResolution:
+      type: string
+      enum: [5m, 15m, 1h, 1d]
+    StateSource:
+      type: string
+      enum: [CALCULATED, MANUAL]
+    EvaluationQuality:
+      type: string
+      enum: [COMPLETE, DEGRADED]
+    Freshness:
+      type: string
+      enum: [NO_DATA, FRESH, STALE]
+    TelemetryQuality:
+      type: string
+      enum: [GOOD, UNCERTAIN, BAD]
+    SignalKind:
+      type: string
+      enum: [GAUGE, COUNTER, STATE]
+    SignalValueType:
+      type: string
+      enum: [DOUBLE, LONG, BOOLEAN, STRING]
+    LossCategory:
+      type: string
+      enum: [EQUIPMENT, MATERIAL, PERSONNEL, PROCESS, QUALITY, CHANGEOVER, EXTERNAL, OTHER]
+    IncidentEffectType:
+      type: string
+      enum: [STATE_OVERRIDE, LOSS_ANNOTATION, STATE_OVERRIDE_WITH_REASON]
+    RecalculationStatus:
+      type: string
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED]
+
+    FieldError:
+      type: object
+      required: [path, code, message]
+      properties:
+        path: { type: string, example: 'rules[0].enterCondition.value' }
+        code: { type: string, example: TYPE_MISMATCH }
+        message: { type: string }
+    ErrorResponse:
+      type: object
+      required: [code, message, traceId, fieldErrors, details]
+      properties:
+        code: { type: string, example: MACHINE_ALREADY_ASSIGNED }
+        message: { type: string }
+        traceId: { type: string }
+        fieldErrors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+        details:
+          type: object
+          additionalProperties: true
+
+    PageMetadata:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    CursorMetadata:
+      type: object
+      required: [limit, hasMore]
+      properties:
+        limit: { type: integer, minimum: 1 }
+        hasMore: { type: boolean }
+        nextCursor: { type: [string, "null"] }
+
+    StatusUpdate:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+
+    EnterpriseCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, timezone]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        timezone: { type: string, minLength: 1, maxLength: 100, example: Europe/Moscow }
+    EnterpriseUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, timezone]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        timezone: { type: string, minLength: 1, maxLength: 100, example: Europe/Moscow }
+    Enterprise:
+      allOf:
+        - $ref: '#/components/schemas/EnterpriseCreate'
+        - type: object
+          required: [id, status, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            status: { $ref: '#/components/schemas/ConfigStatus' }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    EnterprisePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Enterprise' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    ShiftCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, startLocalTime, endLocalTime, validFrom]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        startLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        endLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, "null"], format: date }
+        sortOrder: { type: integer, minimum: 0, default: 0 }
+    ShiftUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, startLocalTime, endLocalTime, validFrom, sortOrder]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        startLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        endLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, "null"], format: date }
+        sortOrder: { type: integer, minimum: 0 }
+    Shift:
+      type: object
+      required: [id, enterpriseId, code, name, startLocalTime, endLocalTime, validFrom, sortOrder, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        startLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        endLocalTime: { $ref: '#/components/schemas/LocalMinuteTime' }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, "null"], format: date }
+        sortOrder: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        used: { type: boolean, description: Признак блокировки исторически значимых границ. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ShiftPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Shift' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    LossReasonCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, category]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"], maxLength: 500 }
+        category: { $ref: '#/components/schemas/LossCategory' }
+        color: { type: [string, "null"], pattern: '^#[0-9A-Fa-f]{6}$' }
+    LossReasonUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, category]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"], maxLength: 500 }
+        category: { $ref: '#/components/schemas/LossCategory' }
+        color: { type: [string, "null"], pattern: '^#[0-9A-Fa-f]{6}$' }
+    LossReason:
+      type: object
+      required: [id, enterpriseId, code, name, category, status, used, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"] }
+        category: { $ref: '#/components/schemas/LossCategory' }
+        color: { type: [string, "null"], pattern: '^#[0-9A-Fa-f]{6}$' }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        used: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LossReasonPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LossReason' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    ProductionLineCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        sortOrder: { type: [integer, "null"], minimum: 0 }
+    ProductionLineUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, sortOrder]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        sortOrder: { type: integer, minimum: 0 }
+    ProductionLine:
+      type: object
+      required: [id, enterpriseId, code, name, sortOrder, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        sortOrder: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductionLinePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProductionLine' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    StableCode:
+      type: string
+      pattern: '^[A-Z][A-Z0-9_]{0,63}$'
+      example: FLEXO_01
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 200
+    LocalMinuteTime:
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+      example: '08:00'
+    TypedParameter:
+      oneOf:
+        - $ref: '#/components/schemas/StringParameter'
+        - $ref: '#/components/schemas/NumberParameter'
+        - $ref: '#/components/schemas/BooleanParameter'
+      discriminator:
+        propertyName: valueType
+        mapping:
+          STRING: '#/components/schemas/StringParameter'
+          NUMBER: '#/components/schemas/NumberParameter'
+          BOOLEAN: '#/components/schemas/BooleanParameter'
+    ParameterBase:
+      type: object
+      required: [code, name, valueType, value, sortOrder]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        valueType: { type: string, enum: [STRING, NUMBER, BOOLEAN] }
+        sortOrder: { type: integer, minimum: 0 }
+    StringParameter:
+      allOf:
+        - $ref: '#/components/schemas/ParameterBase'
+        - type: object
+          properties:
+            valueType: { const: STRING }
+            value: { type: string, maxLength: 500 }
+    NumberParameter:
+      allOf:
+        - $ref: '#/components/schemas/ParameterBase'
+        - type: object
+          properties:
+            valueType: { const: NUMBER }
+            value: { type: number }
+            unitCode: { type: [string, "null"], maxLength: 50 }
+    BooleanParameter:
+      allOf:
+        - $ref: '#/components/schemas/ParameterBase'
+        - type: object
+          properties:
+            valueType: { const: BOOLEAN }
+            value: { type: boolean }
+
+    MachineCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, parameters]
+      properties:
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        lineId: { type: [string, "null"], format: uuid }
+        machineType: { type: [string, "null"], maxLength: 100 }
+        inventoryNo: { type: [string, "null"], maxLength: 100 }
+        manufacturer: { type: [string, "null"], maxLength: 200 }
+        model: { type: [string, "null"], maxLength: 200 }
+        commissioningYear: { type: [integer, "null"], minimum: 1900, maximum: 9999 }
+        nominalRate: { type: [number, "null"], exclusiveMinimum: 0 }
+        productionUnit: { type: [string, "null"], maxLength: 50 }
+        sortOrder: { type: [integer, "null"], minimum: 0 }
+        parameters:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/TypedParameter' }
+    MachineUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, parameters]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        machineType: { type: [string, "null"], maxLength: 100 }
+        inventoryNo: { type: [string, "null"], maxLength: 100 }
+        manufacturer: { type: [string, "null"], maxLength: 200 }
+        model: { type: [string, "null"], maxLength: 200 }
+        commissioningYear: { type: [integer, "null"], minimum: 1900, maximum: 9999 }
+        nominalRate: { type: [number, "null"], exclusiveMinimum: 0 }
+        productionUnit: { type: [string, "null"], maxLength: 50 }
+        sortOrder: { type: [integer, "null"], minimum: 0 }
+        parameters:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/TypedParameter' }
+    Machine:
+      type: object
+      required: [id, enterpriseId, code, name, status, parameters, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        lineId: { type: [string, "null"], format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        machineType: { type: [string, "null"] }
+        inventoryNo: { type: [string, "null"] }
+        manufacturer: { type: [string, "null"] }
+        model: { type: [string, "null"] }
+        commissioningYear: { type: [integer, "null"] }
+        nominalRate: { type: [number, "null"] }
+        productionUnit: { type: [string, "null"] }
+        sortOrder: { type: [integer, "null"] }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        coverageFrom: { type: [string, "null"], format: date-time }
+        parameters:
+          type: array
+          items: { $ref: '#/components/schemas/TypedParameter' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    MachinePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Machine' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+    MachineAssignmentsCreate:
+      type: object
+      additionalProperties: false
+      required: [machineIds]
+      properties:
+        machineIds:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items: { type: string, format: uuid }
+
+    ComponentKind:
+      type: string
+      enum:
+        - LOGICAL_GROUP
+        - ASSEMBLY
+        - MODULE
+        - MECHANISM
+        - MOTOR
+        - DRIVE
+        - GEARBOX
+        - SPINDLE
+        - BEARING
+        - COUPLING
+        - ACTUATOR
+        - PUMP
+        - COMPRESSOR
+        - FAN
+        - BLOWER
+        - VALVE
+        - HEATER
+        - COOLER
+        - MIXER
+        - DOSER
+        - CONVEYOR
+        - FEEDER
+        - ROBOT
+        - MANIPULATOR
+        - TOOL
+        - FIXTURE
+        - SENSOR
+        - INSTRUMENT
+        - CONTROLLER
+        - SAFETY_DEVICE
+        - POWER_SUPPLY
+        - LUBRICATION_SYSTEM
+        - HYDRAULIC_SYSTEM
+        - PNEUMATIC_SYSTEM
+        - COOLING_SYSTEM
+        - OTHER
+    ComponentCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, kind, sortOrder, parameters]
+      properties:
+        parentComponentId: { type: [string, "null"], format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        kind: { $ref: '#/components/schemas/ComponentKind' }
+        sortOrder: { type: integer, minimum: 0 }
+        parameters:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/TypedParameter' }
+    ComponentUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, sortOrder, parameters]
+      properties:
+        name: { $ref: '#/components/schemas/DisplayName' }
+        kind: { $ref: '#/components/schemas/ComponentKind' }
+        sortOrder: { type: integer, minimum: 0 }
+        parameters:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/TypedParameter' }
+    ComponentParentUpdate:
+      type: object
+      additionalProperties: false
+      required: [parentComponentId]
+      properties:
+        parentComponentId: { type: [string, "null"], format: uuid }
+    Component:
+      type: object
+      required: [id, machineId, code, name, kind, sortOrder, status, parameters, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        machineId: { type: string, format: uuid }
+        parentComponentId: { type: [string, "null"], format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        kind: { $ref: '#/components/schemas/ComponentKind' }
+        sortOrder: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        parameters:
+          type: array
+          items: { $ref: '#/components/schemas/TypedParameter' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    TelemetrySignalCreate:
+      type: object
+      additionalProperties: false
+      required: [code, name, valueType, signalKind, semanticCode, featured]
+      properties:
+        componentId: { type: [string, "null"], format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"], maxLength: 500 }
+        valueType: { $ref: '#/components/schemas/SignalValueType' }
+        signalKind: { $ref: '#/components/schemas/SignalKind' }
+        semanticCode: { type: string, minLength: 1, maxLength: 64 }
+        customSemanticCode: { type: [string, "null"], maxLength: 64 }
+        unitCode: { type: [string, "null"], maxLength: 50 }
+        expectedIntervalMs: { type: [integer, "null"], format: int64, minimum: 1 }
+        staleAfterMs: { type: [integer, "null"], format: int64, minimum: 1 }
+        validMin: { type: [number, "null"] }
+        validMax: { type: [number, "null"] }
+        featured: { type: boolean, default: false }
+        displayOrder: { type: [integer, "null"], minimum: 0 }
+    TelemetrySignalUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, valueType, signalKind, semanticCode, featured]
+      properties:
+        componentId: { type: [string, "null"], format: uuid }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"], maxLength: 500 }
+        valueType: { $ref: '#/components/schemas/SignalValueType' }
+        signalKind: { $ref: '#/components/schemas/SignalKind' }
+        semanticCode: { type: string, minLength: 1, maxLength: 64 }
+        customSemanticCode: { type: [string, "null"], maxLength: 64 }
+        unitCode: { type: [string, "null"], maxLength: 50 }
+        expectedIntervalMs: { type: [integer, "null"], format: int64, minimum: 1 }
+        staleAfterMs: { type: [integer, "null"], format: int64, minimum: 1 }
+        validMin: { type: [number, "null"] }
+        validMax: { type: [number, "null"] }
+        featured: { type: boolean }
+        displayOrder: { type: [integer, "null"], minimum: 0 }
+    TelemetrySignal:
+      type: object
+      required: [id, machineId, code, name, valueType, signalKind, semanticCode, featured, status, hasRawData, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        machineId: { type: string, format: uuid }
+        componentId: { type: [string, "null"], format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        description: { type: [string, "null"] }
+        valueType: { $ref: '#/components/schemas/SignalValueType' }
+        signalKind: { $ref: '#/components/schemas/SignalKind' }
+        semanticCode: { type: string }
+        customSemanticCode: { type: [string, "null"] }
+        unitCode: { type: [string, "null"] }
+        expectedIntervalMs: { type: [integer, "null"], format: int64 }
+        staleAfterMs: { type: [integer, "null"], format: int64 }
+        validMin: { type: [number, "null"] }
+        validMax: { type: [number, "null"] }
+        featured: { type: boolean }
+        displayOrder: { type: [integer, "null"] }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        hasRawData: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    TelemetrySignalPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TelemetrySignal' }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    ComparisonOperator:
+      type: string
+      enum: [EQ, NE, GT, GTE, LT, LTE, BETWEEN, IN]
+    TelemetryLiteral:
+      oneOf:
+        - { type: number }
+        - { type: boolean }
+        - { type: string }
+    Condition:
+      oneOf:
+        - $ref: '#/components/schemas/AllCondition'
+        - $ref: '#/components/schemas/AnyCondition'
+        - $ref: '#/components/schemas/NotCondition'
+        - $ref: '#/components/schemas/CompareCondition'
+      discriminator:
+        propertyName: type
+        mapping:
+          ALL: '#/components/schemas/AllCondition'
+          ANY: '#/components/schemas/AnyCondition'
+          NOT: '#/components/schemas/NotCondition'
+          COMPARE: '#/components/schemas/CompareCondition'
+    AllCondition:
+      type: object
+      additionalProperties: false
+      required: [type, conditions]
+      properties:
+        type: { const: ALL }
+        conditions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Condition' }
+    AnyCondition:
+      type: object
+      additionalProperties: false
+      required: [type, conditions]
+      properties:
+        type: { const: ANY }
+        conditions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Condition' }
+    NotCondition:
+      type: object
+      additionalProperties: false
+      required: [type, condition]
+      properties:
+        type: { const: NOT }
+        condition: { $ref: '#/components/schemas/Condition' }
+    CompareCondition:
+      type: object
+      additionalProperties: false
+      required: [type, signalId, operator]
+      properties:
+        type: { const: COMPARE }
+        signalId: { type: string, format: uuid }
+        operator: { $ref: '#/components/schemas/ComparisonOperator' }
+        value: { $ref: '#/components/schemas/TelemetryLiteral' }
+        tolerance: { type: number, exclusiveMinimum: 0 }
+        lower: { $ref: '#/components/schemas/TelemetryLiteral' }
+        upper: { $ref: '#/components/schemas/TelemetryLiteral' }
+        values:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/TelemetryLiteral' }
+    StateRuleInput:
+      type: object
+      additionalProperties: false
+      required: [name, priority, targetState, enterCondition, activationDelayMs, releaseDelayMs]
+      properties:
+        id: { type: [string, "null"], format: uuid, description: Отсутствует для нового rule; backend генерирует UUID. }
+        name: { $ref: '#/components/schemas/DisplayName' }
+        priority: { type: integer }
+        targetState: { $ref: '#/components/schemas/UserMachineState' }
+        enterCondition: { $ref: '#/components/schemas/Condition' }
+        exitCondition:
+          oneOf:
+            - $ref: '#/components/schemas/Condition'
+            - type: "null"
+        activationDelayMs: { type: integer, format: int64, minimum: 0 }
+        releaseDelayMs: { type: integer, format: int64, minimum: 0 }
+    StateRule:
+      allOf:
+        - $ref: '#/components/schemas/StateRuleInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+    MachineStateConfigurationInput:
+      type: object
+      additionalProperties: false
+      required: [defaultState, offlineAfterMs, rules]
+      properties:
+        defaultState: { $ref: '#/components/schemas/UserMachineState' }
+        offlineAfterMs: { type: integer, format: int64, minimum: 1, default: 60000 }
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/StateRuleInput' }
+    MachineStateConfiguration:
+      type: object
+      required: [machineId, defaultState, offlineAfterMs, rules, updatedAt]
+      properties:
+        machineId: { type: string, format: uuid }
+        defaultState: { $ref: '#/components/schemas/UserMachineState' }
+        offlineAfterMs: { type: integer, format: int64, minimum: 1 }
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/StateRule' }
+        updatedAt: { type: string, format: date-time }
+    ValidationIssue:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        path: { type: [string, "null"] }
+        resourceId: { type: [string, "null"], format: uuid }
+        details:
+          type: object
+          additionalProperties: true
+    StateConfigurationValidation:
+      type: object
+      required: [valid, errors, warnings, checkedAt]
+      properties:
+        valid: { type: boolean }
+        normalizedConfiguration:
+          oneOf:
+            - $ref: '#/components/schemas/MachineStateConfigurationInput'
+            - type: "null"
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+        checkedAt: { type: string, format: date-time }
+    ActivationReadiness:
+      type: object
+      required: [machineId, ready, errors, warnings, checkedAt]
+      properties:
+        machineId: { type: string, format: uuid }
+        ready: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+        checkedAt: { type: string, format: date-time }
+
+    EquipmentTreeMachine:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { type: string }
+        inventoryNo: { type: [string, "null"] }
+        machineType: { type: [string, "null"] }
+        sortOrder: { type: [integer, "null"] }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+    EquipmentTreeLine:
+      type: object
+      required: [id, code, name, sortOrder, status, machines]
+      properties:
+        id: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/StableCode' }
+        name: { type: string }
+        sortOrder: { type: integer }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        machines:
+          type: array
+          items: { $ref: '#/components/schemas/EquipmentTreeMachine' }
+    EquipmentTree:
+      type: object
+      required: [enterprise, lines, unassignedMachines, generatedAt]
+      properties:
+        enterprise:
+          type: object
+          required: [id, code, name, timezone, status]
+          properties:
+            id: { type: string, format: uuid }
+            code: { type: string }
+            name: { type: string }
+            timezone: { type: string }
+            status: { $ref: '#/components/schemas/ConfigStatus' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/EquipmentTreeLine' }
+        unassignedMachines:
+          type: array
+          items: { $ref: '#/components/schemas/EquipmentTreeMachine' }
+        generatedAt: { type: string, format: date-time }
+
+    ProjectionCurrency:
+      type: object
+      required: [stale, recalculating]
+      properties:
+        dataThrough: { type: [string, "null"], format: date-time }
+        calculatedAt: { type: [string, "null"], format: date-time }
+        stale: { type: boolean }
+        recalculating: { type: boolean }
+    CurrentState:
+      type: object
+      required: [effectiveState, calculatedState, stateSource, stateSince, evaluationQuality]
+      properties:
+        effectiveState: { $ref: '#/components/schemas/MachineState' }
+        calculatedState: { $ref: '#/components/schemas/MachineState' }
+        stateSource: { $ref: '#/components/schemas/StateSource' }
+        stateSince: { type: string, format: date-time }
+        matchedRuleId: { type: [string, "null"], format: uuid }
+        stateIncidentId: { type: [string, "null"], format: uuid }
+        lossReason:
+          oneOf:
+            - $ref: '#/components/schemas/LossReasonSummary'
+            - type: "null"
+        evaluationQuality: { $ref: '#/components/schemas/EvaluationQuality' }
+        lastTelemetryObservedAt: { type: [string, "null"], format: date-time }
+        underlyingOffline: { type: boolean }
+    LossReasonSummary:
+      type: object
+      required: [id, code, name, category, status]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        category: { $ref: '#/components/schemas/LossCategory' }
+        color: { type: [string, "null"] }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+    TelemetryValue:
+      oneOf:
+        - { type: number }
+        - { type: boolean }
+        - { type: string }
+        - { type: "null" }
+    CurrentSignalValue:
+      type: object
+      required: [signalId, code, name, valueType, signalKind, semanticCode, featured, status, freshness, validationFlags, stale]
+      properties:
+        signalId: { type: string, format: uuid }
+        componentId: { type: [string, "null"], format: uuid }
+        code: { type: string }
+        name: { type: string }
+        valueType: { $ref: '#/components/schemas/SignalValueType' }
+        signalKind: { $ref: '#/components/schemas/SignalKind' }
+        semanticCode: { type: string }
+        unitCode: { type: [string, "null"] }
+        featured: { type: boolean }
+        displayOrder: { type: [integer, "null"] }
+        status: { $ref: '#/components/schemas/ConfigStatus' }
+        lastReceivedValue: { $ref: '#/components/schemas/TelemetryValue' }
+        lastReceivedObservedAt: { type: [string, "null"], format: date-time }
+        lastReceivedAt: { type: [string, "null"], format: date-time }
+        quality:
+          oneOf:
+            - $ref: '#/components/schemas/TelemetryQuality'
+            - type: "null"
+        validationFlags:
+          type: array
+          items: { type: string }
+        lastUsableValue: { $ref: '#/components/schemas/TelemetryValue' }
+        lastUsableObservedAt: { type: [string, "null"], format: date-time }
+        freshness: { $ref: '#/components/schemas/Freshness' }
+        dataThrough: { type: [string, "null"], format: date-time }
+        calculatedAt: { type: [string, "null"], format: date-time }
+        stale: { type: boolean }
+    CurrentTelemetryResponse:
+      type: object
+      required: [machineId, items, currency]
+      properties:
+        machineId: { type: string, format: uuid }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CurrentSignalValue' }
+        currency: { $ref: '#/components/schemas/ProjectionCurrency' }
+    MachineOperationsCurrent:
+      type: object
+      required: [machine, featuredSignals, currency]
+      properties:
+        machine: { $ref: '#/components/schemas/Machine' }
+        line:
+          oneOf:
+            - $ref: '#/components/schemas/ProductionLine'
+            - type: "null"
+        currentState:
+          oneOf:
+            - $ref: '#/components/schemas/CurrentState'
+            - type: "null"
+        featuredSignals:
+          type: array
+          items: { $ref: '#/components/schemas/CurrentSignalValue' }
+        currency: { $ref: '#/components/schemas/ProjectionCurrency' }
+
+    StateCount:
+      type: object
+      required: [state, count]
+      properties:
+        state: { $ref: '#/components/schemas/MachineState' }
+        count: { type: integer, minimum: 0 }
+    MachineCurrentCard:
+      type: object
+      required: [machineId, machineCode, machineName, machineStatus, stale, recalculating]
+      properties:
+        machineId: { type: string, format: uuid }
+        machineCode: { type: string }
+        machineName: { type: string }
+        machineStatus: { $ref: '#/components/schemas/ConfigStatus' }
+        inventoryNo: { type: [string, "null"] }
+        currentState:
+          oneOf:
+            - $ref: '#/components/schemas/CurrentState'
+            - type: "null"
+        dataThrough: { type: [string, "null"], format: date-time }
+        calculatedAt: { type: [string, "null"], format: date-time }
+        stale: { type: boolean }
+        recalculating: { type: boolean }
+    OperationsLine:
+      type: object
+      required: [lineId, lineCode, lineName, stateCounts, machines]
+      properties:
+        lineId: { type: string, format: uuid }
+        lineCode: { type: string }
+        lineName: { type: string }
+        stateCounts:
+          type: array
+          items: { $ref: '#/components/schemas/StateCount' }
+        machines:
+          type: array
+          items: { $ref: '#/components/schemas/MachineCurrentCard' }
+    OperationsOverview:
+      type: object
+      required: [enterpriseId, stateCounts, lines, generatedAt]
+      properties:
+        enterpriseId: { type: string, format: uuid }
+        stateCounts:
+          type: array
+          items: { $ref: '#/components/schemas/StateCount' }
+        staleMachineCount: { type: integer, minimum: 0 }
+        recalculatingMachineCount: { type: integer, minimum: 0 }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OperationsLine' }
+        generatedAt: { type: string, format: date-time }
+
+    HistoricalMetadata:
+      type: object
+      required: [requestedFrom, requestedTo, partial, stale, recalculating]
+      properties:
+        requestedFrom: { type: string, format: date-time }
+        requestedTo: { type: string, format: date-time }
+        actualFrom: { type: [string, "null"], format: date-time }
+        actualTo: { type: [string, "null"], format: date-time }
+        dataThrough: { type: [string, "null"], format: date-time }
+        calculatedAt: { type: [string, "null"], format: date-time }
+        partial: { type: boolean }
+        stale: { type: boolean }
+        recalculating: { type: boolean }
+    MetricDiagnostics:
+      type: object
+      required: [codes]
+      properties:
+        codes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - PRODUCTION_UNIT_MISMATCH
+              - OUTPUT_SIGNAL_MISSING
+              - SCRAP_SIGNAL_MISSING
+              - NOMINAL_RATE_MISSING
+              - SCRAP_EXCEEDS_OUTPUT
+              - PARTIAL_COVERAGE
+        machineIdsWithoutOutput:
+          type: array
+          items: { type: string, format: uuid }
+        machineIdsWithoutNominalRate:
+          type: array
+          items: { type: string, format: uuid }
+        productionUnits:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+    Metrics:
+      type: object
+      required:
+        - coveredSec
+        - runSec
+        - idleSec
+        - downSec
+        - setupSec
+        - plannedStopSec
+        - effectiveOfflineSec
+        - underlyingOfflineSec
+        - stopCount
+        - failureCount
+        - recoveryCount
+        - diagnostics
+      properties:
+        coveredSec: { type: number, minimum: 0 }
+        runSec: { type: number, minimum: 0 }
+        idleSec: { type: number, minimum: 0 }
+        downSec: { type: number, minimum: 0 }
+        setupSec: { type: number, minimum: 0 }
+        plannedStopSec: { type: number, minimum: 0 }
+        effectiveOfflineSec: { type: number, minimum: 0 }
+        underlyingOfflineSec: { type: number, minimum: 0 }
+        plannedProductionSec: { type: number, minimum: 0 }
+        operatingSec: { type: number, minimum: 0 }
+        productiveSec: { type: number, minimum: 0 }
+        output: { type: [number, "null"] }
+        scrap: { type: [number, "null"] }
+        goodOutput: { type: [number, "null"] }
+        idealOutput: { type: [number, "null"] }
+        productionUnit: { type: [string, "null"] }
+        stopCount: { type: integer, format: int64, minimum: 0 }
+        failureCount: { type: integer, format: int64, minimum: 0 }
+        recoveryCount: { type: integer, format: int64, minimum: 0 }
+        availability: { type: [number, "null"], minimum: 0, maximum: 1 }
+        performance: { type: [number, "null"], minimum: 0 }
+        quality: { type: [number, "null"], minimum: 0, maximum: 1 }
+        oee: { type: [number, "null"], minimum: 0 }
+        dataCoverage: { type: [number, "null"], minimum: 0, maximum: 1 }
+        mtbfSec: { type: [number, "null"], minimum: 0 }
+        mttrSec: { type: [number, "null"], minimum: 0 }
+        diagnostics: { $ref: '#/components/schemas/MetricDiagnostics' }
+    MetricPeriod:
+      type: object
+      required: [metadata, metrics]
+      properties:
+        metadata: { $ref: '#/components/schemas/HistoricalMetadata' }
+        metrics: { $ref: '#/components/schemas/Metrics' }
+    AnalyticsSummary:
+      type: object
+      required: [scope, scopeId, current]
+      properties:
+        scope: { $ref: '#/components/schemas/AnalyticsScope' }
+        scopeId: { type: string, format: uuid }
+        shiftId: { type: [string, "null"], format: uuid }
+        shiftDate: { type: [string, "null"], format: date }
+        current: { $ref: '#/components/schemas/MetricPeriod' }
+        previous:
+          oneOf:
+            - $ref: '#/components/schemas/MetricPeriod'
+            - type: "null"
+
+    MetricPoint:
+      type: object
+      required: [bucketStart, bucketEnd, metrics]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        bucketEnd: { type: string, format: date-time }
+        metrics: { $ref: '#/components/schemas/Metrics' }
+    MetricTimeseries:
+      type: object
+      required: [scope, scopeId, metadata, resolution, points]
+      properties:
+        scope: { $ref: '#/components/schemas/AnalyticsScope' }
+        scopeId: { type: string, format: uuid }
+        shiftId: { type: [string, "null"], format: uuid }
+        metadata: { $ref: '#/components/schemas/HistoricalMetadata' }
+        resolution: { $ref: '#/components/schemas/AppliedResolution' }
+        points:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/MetricPoint' }
+
+    TelemetrySeriesMetadata:
+      allOf:
+        - $ref: '#/components/schemas/HistoricalMetadata'
+        - type: object
+          required: [resolution]
+          properties:
+            resolution: { $ref: '#/components/schemas/AppliedResolution' }
+    GaugePoint:
+      type: object
+      required: [bucketStart, bucketEnd, sampleCount, usableCount, goodCount, uncertainCount, badCount]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        bucketEnd: { type: string, format: date-time }
+        min: { type: [number, "null"] }
+        max: { type: [number, "null"] }
+        avg: { type: [number, "null"] }
+        first: { type: [number, "null"] }
+        last: { type: [number, "null"] }
+        sampleCount: { type: integer, format: int64, minimum: 0 }
+        usableCount: { type: integer, format: int64, minimum: 0 }
+        goodCount: { type: integer, format: int64, minimum: 0 }
+        uncertainCount: { type: integer, format: int64, minimum: 0 }
+        badCount: { type: integer, format: int64, minimum: 0 }
+    CounterPoint:
+      type: object
+      required: [bucketStart, bucketEnd, resetCount, sampleCount, usableCount, goodCount, uncertainCount, badCount]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        bucketEnd: { type: string, format: date-time }
+        first: { type: [number, "null"] }
+        last: { type: [number, "null"] }
+        delta: { type: [number, "null"] }
+        resetCount: { type: integer, format: int64, minimum: 0 }
+        sampleCount: { type: integer, format: int64, minimum: 0 }
+        usableCount: { type: integer, format: int64, minimum: 0 }
+        goodCount: { type: integer, format: int64, minimum: 0 }
+        uncertainCount: { type: integer, format: int64, minimum: 0 }
+        badCount: { type: integer, format: int64, minimum: 0 }
+    TelemetrySeries:
+      type: object
+      required: [machineId, signal, metadata, points]
+      properties:
+        machineId: { type: string, format: uuid }
+        signal: { $ref: '#/components/schemas/TelemetrySignal' }
+        metadata: { $ref: '#/components/schemas/TelemetrySeriesMetadata' }
+        points:
+          type: array
+          maxItems: 720
+          items:
+            anyOf:
+              - $ref: '#/components/schemas/GaugePoint'
+              - $ref: '#/components/schemas/CounterPoint'
+
+    LossBucketKind:
+      type: string
+      enum: [REASON, UNCLASSIFIED, OTHER]
+    LossReasonDuration:
+      type: object
+      required: [kind, durationSec]
+      properties:
+        kind: { $ref: '#/components/schemas/LossBucketKind' }
+        reasonId: { type: [string, "null"], format: uuid }
+        reasonCode: { type: [string, "null"] }
+        reasonName: { type: [string, "null"] }
+        category:
+          oneOf:
+            - $ref: '#/components/schemas/LossCategory'
+            - type: "null"
+        color: { type: [string, "null"] }
+        durationSec: { type: number, minimum: 0 }
+    LossPoint:
+      type: object
+      required: [bucketStart, bucketEnd, idleSec, downSec, setupSec, plannedStopSec, unclassifiedLossSec, byReason]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        bucketEnd: { type: string, format: date-time }
+        idleSec: { type: number, minimum: 0 }
+        downSec: { type: number, minimum: 0 }
+        setupSec: { type: number, minimum: 0 }
+        plannedStopSec: { type: number, minimum: 0 }
+        unclassifiedLossSec: { type: number, minimum: 0 }
+        byReason:
+          type: array
+          items: { $ref: '#/components/schemas/LossReasonDuration' }
+    LossTimeseries:
+      type: object
+      required: [scope, scopeId, metadata, resolution, points]
+      properties:
+        scope: { $ref: '#/components/schemas/AnalyticsScope' }
+        scopeId: { type: string, format: uuid }
+        shiftId: { type: [string, "null"], format: uuid }
+        metadata: { $ref: '#/components/schemas/HistoricalMetadata' }
+        resolution: { $ref: '#/components/schemas/AppliedResolution' }
+        points:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/LossPoint' }
+    ParetoRow:
+      allOf:
+        - $ref: '#/components/schemas/LossReasonDuration'
+        - type: object
+          required: [share, cumulativeShare]
+          properties:
+            share: { type: number, minimum: 0, maximum: 1 }
+            cumulativeShare: { type: number, minimum: 0, maximum: 1 }
+    LossPareto:
+      type: object
+      required: [scope, scopeId, metadata, totalLossSec, rows]
+      properties:
+        scope: { $ref: '#/components/schemas/AnalyticsScope' }
+        scopeId: { type: string, format: uuid }
+        shiftId: { type: [string, "null"], format: uuid }
+        shiftDate: { type: [string, "null"], format: date }
+        metadata: { $ref: '#/components/schemas/HistoricalMetadata' }
+        totalLossSec: { type: number, minimum: 0 }
+        plannedStopSec: { type: number, minimum: 0 }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/ParetoRow' }
+
+    StateDuration:
+      type: object
+      required: [state, durationSec]
+      properties:
+        state: { $ref: '#/components/schemas/MachineState' }
+        durationSec: { type: number, minimum: 0 }
+    EffectiveStateInterval:
+      type: object
+      required: [from, to, durationSec, effectiveState, calculatedState, stateSource, underlyingOffline]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time, description: Clipped boundary внутри запрошенного готового диапазона. }
+        durationSec: { type: number, exclusiveMinimum: 0 }
+        openEnded: { type: boolean, default: false }
+        effectiveState: { $ref: '#/components/schemas/MachineState' }
+        calculatedState: { $ref: '#/components/schemas/MachineState' }
+        stateSource: { $ref: '#/components/schemas/StateSource' }
+        stateIncidentId: { type: [string, "null"], format: uuid }
+        reasonIncidentId: { type: [string, "null"], format: uuid }
+        lossReason:
+          oneOf:
+            - $ref: '#/components/schemas/LossReasonSummary'
+            - type: "null"
+        telemetryQuality: { $ref: '#/components/schemas/EvaluationQuality' }
+        underlyingOffline: { type: boolean }
+    ChronometryOccurrence:
+      type: object
+      required: [shiftId, shiftCode, shiftName, shiftDate, occurrenceFrom, occurrenceTo, actualTo, partial, totals, intervals]
+      properties:
+        shiftId: { type: string, format: uuid }
+        shiftCode: { type: string }
+        shiftName: { type: string }
+        shiftDate: { type: string, format: date }
+        occurrenceFrom: { type: string, format: date-time }
+        occurrenceTo: { type: string, format: date-time }
+        actualTo: { type: string, format: date-time }
+        partial: { type: boolean }
+        totals:
+          type: array
+          items: { $ref: '#/components/schemas/StateDuration' }
+        intervals:
+          type: array
+          items: { $ref: '#/components/schemas/EffectiveStateInterval' }
+    ChronometryResponse:
+      type: object
+      required: [machineId, shiftDate, occurrences, currency]
+      properties:
+        machineId: { type: string, format: uuid }
+        shiftDate: { type: string, format: date }
+        occurrences:
+          type: array
+          items: { $ref: '#/components/schemas/ChronometryOccurrence' }
+        currency: { $ref: '#/components/schemas/ProjectionCurrency' }
+
+    StateIntervalPage:
+      type: object
+      required: [machineId, requestedFrom, requestedTo, items, cursor, currency, partial]
+      properties:
+        machineId: { type: string, format: uuid }
+        requestedFrom: { type: string, format: date-time }
+        requestedTo: { type: string, format: date-time }
+        actualFrom: { type: [string, "null"], format: date-time }
+        actualTo: { type: [string, "null"], format: date-time }
+        partial: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EffectiveStateInterval' }
+        cursor: { $ref: '#/components/schemas/CursorMetadata' }
+        currency: { $ref: '#/components/schemas/ProjectionCurrency' }
+
+    ManualIncidentCreate:
+      type: object
+      additionalProperties: false
+      required: [from]
+      anyOf:
+        - required: [stateOverride]
+        - required: [lossReasonId]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: [string, "null"], format: date-time }
+        stateOverride:
+          oneOf:
+            - $ref: '#/components/schemas/ManualStateOverride'
+            - type: "null"
+        lossReasonId: { type: [string, "null"], format: uuid }
+        comment: { type: [string, "null"], maxLength: 500 }
+        author: { type: [string, "null"], maxLength: 100 }
+    ManualIncidentUpdate:
+      type: object
+      additionalProperties: false
+      required: [from]
+      anyOf:
+        - required: [stateOverride]
+        - required: [lossReasonId]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: [string, "null"], format: date-time }
+        stateOverride:
+          oneOf:
+            - $ref: '#/components/schemas/ManualStateOverride'
+            - type: "null"
+        lossReasonId: { type: [string, "null"], format: uuid }
+        comment: { type: [string, "null"], maxLength: 500 }
+    ManualIncidentClose:
+      type: object
+      additionalProperties: false
+      required: [to]
+      properties:
+        to: { type: string, format: date-time }
+    ManualIncident:
+      type: object
+      required: [id, machineId, machine, from, effectType, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        machineId: { type: string, format: uuid }
+        machine: { $ref: '#/components/schemas/MachineReference' }
+        from: { type: string, format: date-time }
+        to: { type: [string, "null"], format: date-time }
+        stateOverride:
+          oneOf:
+            - $ref: '#/components/schemas/ManualStateOverride'
+            - type: "null"
+        lossReason:
+          oneOf:
+            - $ref: '#/components/schemas/LossReasonSummary'
+            - type: "null"
+        effectType: { $ref: '#/components/schemas/IncidentEffectType' }
+        comment: { type: [string, "null"] }
+        author: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        recalculating: { type: boolean, default: true }
+    MachineReference:
+      type: object
+      required: [id, code, name]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        lineId: { type: [string, "null"], format: uuid }
+        lineCode: { type: [string, "null"] }
+        lineName: { type: [string, "null"] }
+    ManualIncidentPage:
+      type: object
+      required: [items, cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ManualIncident' }
+        cursor: { $ref: '#/components/schemas/CursorMetadata' }
+
+    RecalculationScope:
+      type: string
+      enum: [PERIOD, ALL]
+    StateRecalculationCreate:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope: { $ref: '#/components/schemas/RecalculationScope' }
+        from: { type: [string, "null"], format: date-time }
+        to: { type: [string, "null"], format: date-time }
+      description: PERIOD требует from/to; ALL запрещает их.
+    JobError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+    StateRecalculation:
+      type: object
+      required: [id, machineId, scope, status, progress, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        machineId: { type: string, format: uuid }
+        scope: { $ref: '#/components/schemas/RecalculationScope' }
+        requestedFrom: { type: [string, "null"], format: date-time }
+        requestedTo: { type: [string, "null"], format: date-time }
+        effectiveFrom: { type: [string, "null"], format: date-time }
+        effectiveTo: { type: [string, "null"], format: date-time }
+        status: { $ref: '#/components/schemas/RecalculationStatus' }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        completedAt: { type: [string, "null"], format: date-time }
+        error:
+          oneOf:
+            - $ref: '#/components/schemas/JobError'
+            - type: "null"
+    StateRecalculationPage:
+      type: object
+      required: [items, cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/StateRecalculation' }
+        cursor: { $ref: '#/components/schemas/CursorMetadata' }
