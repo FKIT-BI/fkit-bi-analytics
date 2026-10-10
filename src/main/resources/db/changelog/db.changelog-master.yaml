@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: releases/001-foundation/changelog.yaml
+      relativeToChangelogFile: true

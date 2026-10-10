@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - changeSet:
+      id: test-failing-migration
+      author: test
+      changes:
+        - sql:
+            sql: SELECT * FROM fkit_bi_test_schema.missing_table

@@ -1,0 +1,10 @@
+databaseChangeLog:
+  - include:
+      file: 001-create-schemas.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 002-create-schema-release.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 003-create-reference-catalogs.sql
+      relativeToChangelogFile: true

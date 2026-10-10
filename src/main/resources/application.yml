@@ -5,8 +5,11 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/fkit_bi}
     username: ${SPRING_DATASOURCE_USERNAME:fkit_bi}
     password: ${SPRING_DATASOURCE_PASSWORD:fkit_bi}
-  flyway:
+    hikari:
+      connection-timeout: 2000
+  liquibase:
     enabled: true
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
 management:
   endpoints:
     web:
@@ -16,9 +19,11 @@ management:
     health:
       probes:
         enabled: true
+      show-details: never
       group:
         readiness:
-          include: readinessState
+          include: readinessState,schemaRelease
+          show-details: always
         liveness:
           include: livenessState
 info:
