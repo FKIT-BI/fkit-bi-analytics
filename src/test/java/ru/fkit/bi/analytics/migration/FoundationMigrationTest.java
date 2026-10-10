@@ -38,7 +38,7 @@ class FoundationMigrationTest {
     List<String> cleanSchemas;
     try (Connection connection = connect(cleanUrl); Statement statement = connection.createStatement()) {
       cleanSchemas = schemas(statement);
-      assertEquals("001-foundation", scalar(statement,
+      assertEquals("002-authentication", scalar(statement,
           "SELECT release FROM equipment.schema_release WHERE singleton = TRUE"));
       assertEquals(26, Integer.parseInt(scalar(statement,
           "SELECT count(*) FROM equipment.signal_semantic")));
@@ -73,7 +73,7 @@ class FoundationMigrationTest {
     apply(cleanUrl);
     try (Connection connection = connect(cleanUrl); Statement statement = connection.createStatement()) {
       assertEquals(cleanSchemas, schemas(statement));
-      assertEquals("001-foundation", scalar(statement,
+      assertEquals("002-authentication", scalar(statement,
           "SELECT release FROM equipment.schema_release WHERE singleton = TRUE"));
       assertEquals(26, Integer.parseInt(scalar(statement,
           "SELECT count(*) FROM equipment.signal_semantic")));
@@ -109,9 +109,9 @@ class FoundationMigrationTest {
       assertEquals("2|V2__equipment.sql|22|true", scalar(statement,
           "SELECT version || '|' || script || '|' || checksum || '|' || success "
               + "FROM flyway_schema_history WHERE installed_rank = 2"));
-      assertEquals("001-foundation", scalar(statement,
+      assertEquals("002-authentication", scalar(statement,
           "SELECT release FROM equipment.schema_release WHERE singleton = TRUE"));
-      assertTrue(schemas(statement).containsAll(List.of("equipment", "telemetry", "analytics", "incident", "generator")));
+      assertTrue(schemas(statement).containsAll(List.of("equipment", "telemetry", "analytics", "incident", "generator", "identity")));
     }
     apply(legacyUrl);
     try (Connection connection = connect(legacyUrl); Statement statement = connection.createStatement()) {
@@ -152,7 +152,7 @@ class FoundationMigrationTest {
 
   private List<String> schemas(Statement statement) throws Exception {
     try (ResultSet result = statement.executeQuery(
-        "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('equipment', 'telemetry', 'analytics', 'incident', 'generator') ORDER BY schema_name")) {
+        "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('equipment', 'telemetry', 'analytics', 'incident', 'generator', 'identity') ORDER BY schema_name")) {
       var values = new java.util.ArrayList<String>();
       while (result.next()) values.add(result.getString(1));
       return values;

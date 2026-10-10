@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-001-authentication
+      author: fkit-bi
+      changes:
+        - sqlFile:
+            path: 001-create-identity-users.sql
+            relativeToChangelogFile: true
+        - sqlFile:
+            path: 002-create-bootstrap-trigger-function.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+        - sqlFile:
+            path: 003-create-bootstrap-trigger.sql
+            relativeToChangelogFile: true

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import ru.fkit.bi.analytics.auth.AuthError;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -31,7 +32,23 @@ public class ApiExceptionHandler {
     List<ErrorResponse.FieldError> fields = exception.getBindingResult().getFieldErrors().stream()
         .map(error -> new ErrorResponse.FieldError(error.getField(), "INVALID", "Value is invalid"))
         .toList();
+    if ("/api/v1/auth/login".equals(request.getRequestURI())) {
+      return error(request, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Request body is invalid", fields);
+    }
     return error(request, HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "Request validation failed", fields);
+  }
+
+  @ExceptionHandler(AuthError.class)
+  ResponseEntity<ErrorResponse> authError(AuthError exception, HttpServletRequest request) {
+    ResponseEntity.BodyBuilder response = ResponseEntity.status(exception.status());
+    if (exception.status() == 429) response.header("Retry-After", Long.toString(exception.retryAfter()));
+    return response.body(errorBody(request, exception.code(), exception.getMessage()));
+  }
+
+  @ExceptionHandler(org.springframework.security.authentication.BadCredentialsException.class)
+  ResponseEntity<ErrorResponse> authenticationFailed(HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        .body(errorBody(request, "AUTHENTICATION_FAILED", "Authentication failed"));
   }
 
   @ExceptionHandler(HandlerMethodValidationException.class)
@@ -89,8 +106,13 @@ public class ApiExceptionHandler {
 
   private ResponseEntity<ErrorResponse> error(
       HttpServletRequest request, HttpStatus status, String code, String message, List<ErrorResponse.FieldError> fields) {
+    ErrorResponse body = errorBody(request, code, message);
+    return ResponseEntity.status(status).body(new ErrorResponse(body.code(), body.message(), body.traceId(), fields, body.details()));
+  }
+
+  private ErrorResponse errorBody(HttpServletRequest request, String code, String message) {
     Object attribute = request.getAttribute(TraceIdFilter.ATTRIBUTE);
     String traceId = attribute instanceof String value ? value : "unknown";
-    return ResponseEntity.status(status).body(new ErrorResponse(code, message, traceId, fields, Map.of()));
+    return new ErrorResponse(code, message, traceId, List.of(), Map.of());
   }
 }

@@ -36,12 +36,14 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(AnalyticsApplicationTest.TestEndpoints.class)
+@WithMockUser
 class AnalyticsApplicationTest {
   @Container
   static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -51,6 +53,7 @@ class AnalyticsApplicationTest {
     registry.add("spring.datasource.url", postgres::getJdbcUrl);
     registry.add("spring.datasource.username", postgres::getUsername);
     registry.add("spring.datasource.password", postgres::getPassword);
+    registry.add("fkit.auth.jwt-secret", () -> "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
   }
 
   @Autowired MockMvc mockMvc;
@@ -171,7 +174,7 @@ class AnalyticsApplicationTest {
         .andExpect(jsonPath("$.components").doesNotExist());
     mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("UP"))
-        .andExpect(jsonPath("$.components.schemaRelease.details.release").value("001-foundation"));
+        .andExpect(jsonPath("$.components.schemaRelease.details.release").value("002-authentication"));
   }
 
   @Test
@@ -183,12 +186,12 @@ class AnalyticsApplicationTest {
     mockMvc.perform(get("/actuator/health/liveness"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
 
-    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '001-foundation' WHERE singleton = TRUE");
+    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '002-authentication' WHERE singleton = TRUE");
     jdbcTemplate.update("DELETE FROM equipment.schema_release WHERE singleton = TRUE");
     mockMvc.perform(get("/actuator/health/readiness"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.components.schemaRelease.details.reason").value("RELEASE_MISSING"));
-    jdbcTemplate.update("INSERT INTO equipment.schema_release (singleton, release) VALUES (TRUE, '001-foundation')");
+    jdbcTemplate.update("INSERT INTO equipment.schema_release (singleton, release) VALUES (TRUE, '002-authentication')");
   }
 
   @Test
