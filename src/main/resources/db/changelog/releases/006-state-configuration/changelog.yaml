@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: 001-machine-state-configuration.sql
+      relativeToChangelogFile: true

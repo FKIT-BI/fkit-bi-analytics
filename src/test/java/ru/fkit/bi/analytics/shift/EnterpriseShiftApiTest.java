@@ -42,12 +42,15 @@ class EnterpriseShiftApiTest {
   @Autowired ShiftService service;
   @BeforeEach void clean(){
     jdbc.execute("drop table if exists incident.incident");
-    jdbc.execute("drop table if exists telemetry.signal_usage");
-    jdbc.execute("drop table if exists equipment.telemetry_signal");
     jdbc.execute("drop table if exists analytics.machine_metric_bucket_1m");
     jdbc.execute("drop table if exists analytics.machine_loss_bucket_1m");
-    jdbc.execute("drop table if exists equipment.machine");
     jdbc.execute("drop table if exists generator.generation_run");
+    jdbc.update("delete from analytics.machine_state_config");
+    jdbc.update("delete from telemetry.signal_usage");
+    jdbc.update("delete from equipment.telemetry_signal");
+    jdbc.update("delete from equipment.component");
+    jdbc.update("delete from equipment.machine");
+    jdbc.update("delete from equipment.production_line");
     jdbc.update("delete from equipment.shift");jdbc.update("delete from equipment.enterprise");
   }
 
@@ -190,18 +193,15 @@ class EnterpriseShiftApiTest {
   }
 
   private UUID createMachine(UUID enterpriseId) {
-    jdbc.execute("create table if not exists equipment.machine (id uuid primary key, enterprise_id uuid not null)");
     UUID machineId=UUID.randomUUID();
-    jdbc.update("insert into equipment.machine(id,enterprise_id) values (?,?)",machineId,enterpriseId);
+    jdbc.update("insert into equipment.machine(id,enterprise_id,code,name) values (?,?,?,?)",machineId,enterpriseId,"TEST_"+machineId.toString().replace("-","").substring(0,12).toUpperCase(),"Test machine");
     return machineId;
   }
 
   private void createCanonicalMachineAndSignalUsage(UUID enterpriseId) {
     UUID machineId=createMachine(enterpriseId);
-    jdbc.execute("create table equipment.telemetry_signal (id uuid primary key, machine_id uuid not null)");
-    jdbc.execute("create table telemetry.signal_usage (signal_id uuid primary key)");
     UUID signalId=UUID.randomUUID();
-    jdbc.update("insert into equipment.telemetry_signal(id,machine_id) values (?,?)",signalId,machineId);
+    jdbc.update("insert into equipment.telemetry_signal(id,machine_id,code,name,value_type,signal_kind,semantic_code,featured) values (?,?,?,?,?,?,?,?)",signalId,machineId,"TEST_SIGNAL","Test signal","DOUBLE","GAUGE","TEMPERATURE",false);
     jdbc.update("insert into telemetry.signal_usage(signal_id) values (?)",signalId);
   }
 

@@ -1,0 +1,31 @@
+package ru.fkit.bi.analytics.signal;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.sql.*;
+import java.util.*;
+import org.springframework.jdbc.core.*;
+import org.springframework.stereotype.Repository;
+import ru.fkit.bi.analytics.signal.SignalModels.*;
+
+@Repository
+class SignalRepository {
+  private final JdbcTemplate jdbc;private final ObjectMapper json;private final RowMapper<Signal> row=(r,n)->map(r);
+  SignalRepository(JdbcTemplate jdbc,ObjectMapper json){this.jdbc=jdbc;this.json=json;}
+  private static Signal map(ResultSet r)throws SQLException{return new Signal(r.getObject("id",UUID.class),r.getObject("machine_id",UUID.class),r.getObject("component_id",UUID.class),r.getString("code"),r.getString("name"),r.getString("description"),r.getString("value_type"),r.getString("signal_kind"),r.getString("semantic_code"),r.getString("custom_semantic_code"),r.getString("unit_code"),(Long)r.getObject("expected_interval_ms"),(Long)r.getObject("stale_after_ms"),r.getObject("valid_min")==null?null:r.getDouble("valid_min"),r.getObject("valid_max")==null?null:r.getDouble("valid_max"),r.getBoolean("featured"),(Integer)r.getObject("display_order"),r.getString("status"),r.getBoolean("has_raw_data"),r.getTimestamp("created_at").toInstant(),r.getTimestamp("updated_at").toInstant());}
+  Optional<Signal> find(UUID id){return jdbc.query("select s.*,exists(select 1 from telemetry.signal_usage u where u.signal_id=s.id) has_raw_data from equipment.telemetry_signal s where s.id=?",row,id).stream().findFirst();}
+  boolean machineExists(UUID id){return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from equipment.machine where id=?)",Boolean.class,id));}
+  boolean componentOwned(UUID m,UUID c){return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from equipment.component where machine_id=? and id=?)",Boolean.class,m,c));}
+  boolean catalogSemantic(String code){return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from equipment.signal_semantic where code=? and status='ACTIVE')",Boolean.class,code));}
+  boolean catalogUnit(String code){return code==null||Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from equipment.measurement_unit where code=? and status='ACTIVE')",Boolean.class,code));}
+  List<Signal> page(UUID m,UUID c,String status,String semantic,String kind,Boolean featured,String search,int p,int z){String pattern=pattern(search);return jdbc.query("select s.*,exists(select 1 from telemetry.signal_usage u where u.signal_id=s.id) has_raw_data from equipment.telemetry_signal s where machine_id=? and (?::uuid is null or component_id=?) and status=? and (?::text is null or semantic_code=?) and (?::text is null or signal_kind=?) and (?::boolean is null or featured=?) and (?::text is null or lower(code) like lower(?) escape '!' or lower(name) like lower(?) escape '!') order by display_order nulls last,code,id limit ? offset ?",row,m,c,c,status,semantic,semantic,kind,kind,featured,featured,search,pattern,pattern,z,(long)p*z);}
+  long count(UUID m,UUID c,String status,String semantic,String kind,Boolean featured,String search){String pattern=pattern(search);return jdbc.queryForObject("select count(*) from equipment.telemetry_signal where machine_id=? and (?::uuid is null or component_id=?) and status=? and (?::text is null or semantic_code=?) and (?::text is null or signal_kind=?) and (?::boolean is null or featured=?) and (?::text is null or lower(code) like lower(?) escape '!' or lower(name) like lower(?) escape '!')",Long.class,m,c,c,status,semantic,semantic,kind,kind,featured,featured,search,pattern,pattern);}
+  Signal create(UUID id,UUID m,Create x){jdbc.update("insert into equipment.telemetry_signal(id,machine_id,component_id,code,name,description,value_type,signal_kind,semantic_code,custom_semantic_code,unit_code,expected_interval_ms,stale_after_ms,valid_min,valid_max,featured,display_order) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,m,x.componentId(),x.code(),x.name().trim(),x.description(),x.valueType(),x.signalKind(),x.semanticCode(),x.customSemanticCode(),x.unitCode(),x.expectedIntervalMs(),x.staleAfterMs(),x.validMin(),x.validMax(),x.featured(),x.displayOrder());return find(id).orElseThrow();}
+  void update(UUID id,Update x){jdbc.update("update equipment.telemetry_signal set component_id=?,name=?,description=?,value_type=?,signal_kind=?,semantic_code=?,custom_semantic_code=?,unit_code=?,expected_interval_ms=?,stale_after_ms=?,valid_min=?,valid_max=?,featured=?,display_order=?,updated_at=current_timestamp where id=?",x.componentId(),x.name().trim(),x.description(),x.valueType(),x.signalKind(),x.semanticCode(),x.customSemanticCode(),x.unitCode(),x.expectedIntervalMs(),x.staleAfterMs(),x.validMin(),x.validMax(),x.featured(),x.displayOrder(),id);}
+  void status(UUID id,String value){jdbc.update("update equipment.telemetry_signal set status=?,updated_at=current_timestamp where id=?",value,id);}
+  void exclusiveSignalLock(UUID id){jdbc.query("select pg_advisory_xact_lock(hashtextextended(?::text,0))",(r,n)->r.getObject(1),id);}
+  void lockMachine(UUID id){jdbc.query("select id from equipment.machine where id=? for update",(r,n)->r.getObject(1),id);}
+  boolean rawUsed(UUID id){return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from telemetry.signal_usage where signal_id=?)",Boolean.class,id));}
+  boolean referencedByActiveStateMachine(UUID id){List<String> documents=jdbc.query("select c.configuration::text from equipment.machine m join analytics.machine_state_config c on c.machine_id=m.id where m.status='ACTIVE'",(r,n)->r.getString(1));for(String document:documents){try{for(JsonNode ref:json.readTree(document).findValues("signalId"))if(ref.isTextual()&&id.toString().equals(ref.asText()))return true;}catch(Exception e){throw new IllegalStateException("Could not inspect stored machine state configuration",e);}}return false;}
+  private static String pattern(String s){return s==null?null:"%"+s.replace("!","!!").replace("%","!%").replace("_","!_")+"%";}
+}
