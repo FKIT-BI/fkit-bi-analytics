@@ -45,7 +45,9 @@ public class MinuteProjectionService {
       jdbc.update("DELETE FROM analytics.staging_signal_numeric_rollup_1m WHERE work_machine_id=? AND work_generation=?", item.machineId(), item.generation());
       jdbc.update("DELETE FROM analytics.staging_machine_loss_bucket_1m WHERE machine_id=? AND work_generation=?", item.machineId(), item.generation());
       jdbc.update("DELETE FROM analytics.staging_machine_metric_bucket_1m WHERE machine_id=? AND work_generation=?", item.machineId(), item.generation());
+      jdbc.update("DELETE FROM analytics.staging_machine_effective_state_interval WHERE machine_id=? AND work_generation=?", item.machineId(), item.generation());
       stageNumeric(item, from, to);
+      stageEffective(item);
       stageMachine(item, from, to);
       applyShiftAttribution(item);
     });
@@ -64,6 +66,11 @@ public class MinuteProjectionService {
     jdbc.update("INSERT INTO analytics.machine_state_interval(machine_id,effective_from,effective_to,state,detected_at,calculated_at) "
         + "SELECT machine_id,effective_from,effective_to,state,detected_at,clock_timestamp() FROM analytics.staging_machine_state_interval "
         + "WHERE machine_id=? AND work_generation=? ORDER BY effective_from",item.machineId(),item.generation());
+    jdbc.update("DELETE FROM analytics.machine_effective_state_interval e USING (SELECT min(effective_from) first_from FROM analytics.staging_machine_effective_state_interval WHERE machine_id=? AND work_generation=?) s "
+        + "WHERE e.machine_id=? AND (e.effective_from>=s.first_from OR COALESCE(e.effective_to,'infinity'::timestamptz)>s.first_from)",item.machineId(),item.generation(),item.machineId());
+    jdbc.update("INSERT INTO analytics.machine_effective_state_interval(machine_id,effective_from,effective_to,effective_state,calculated_state,state_source,state_incident_id,loss_reason_id,reason_incident_id,calculated_at) "
+        + "SELECT machine_id,effective_from,effective_to,effective_state,calculated_state,state_source,state_incident_id,loss_reason_id,reason_incident_id,clock_timestamp() "
+        + "FROM analytics.staging_machine_effective_state_interval WHERE machine_id=? AND work_generation=? ORDER BY effective_from",item.machineId(),item.generation());
     jdbc.update("UPDATE analytics.machine_current_state c SET state=s.state,state_since=s.effective_from,matched_rule_id=(SELECT (r->>'id')::uuid FROM analytics.machine_state_config cfg CROSS JOIN LATERAL jsonb_array_elements(cfg.configuration->'rules') r WHERE cfg.machine_id=c.machine_id AND r->>'targetState'=s.state ORDER BY (r->>'priority')::integer DESC LIMIT 1),calculated_at=clock_timestamp() FROM (SELECT state,effective_from FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=? ORDER BY effective_from DESC LIMIT 1) s WHERE c.machine_id=?",
         item.machineId(),item.generation(),item.machineId());
     jdbc.update("DELETE FROM analytics.signal_numeric_rollup_1m r USING equipment.telemetry_signal s "
@@ -83,6 +90,7 @@ public class MinuteProjectionService {
     jdbc.update("DELETE FROM analytics.staging_machine_loss_bucket_1m WHERE machine_id=? AND work_generation=?",item.machineId(),item.generation());
     jdbc.update("DELETE FROM analytics.staging_machine_metric_bucket_1m WHERE machine_id=? AND work_generation=?",item.machineId(),item.generation());
     jdbc.update("DELETE FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?",item.machineId(),item.generation());
+    jdbc.update("DELETE FROM analytics.staging_machine_effective_state_interval WHERE machine_id=? AND work_generation=?",item.machineId(),item.generation());
   }
 
   private void stageNumeric(WorkItem item, Instant from, Instant to) {
@@ -114,12 +122,33 @@ public class MinuteProjectionService {
     jdbc.update(sql, item.machineId(), Timestamp.from(from), Timestamp.from(to), Timestamp.from(item.dirtyTo()), item.machineId(), item.generation());
   }
 
+  private void stageEffective(WorkItem item) {
+    String sql = "WITH source AS (SELECT machine_id,effective_from,effective_to,state FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?), "
+        + "bounds AS (SELECT s.machine_id,s.effective_from source_from,s.effective_to source_to,s.state, s.effective_from boundary FROM source s "
+        + "UNION SELECT s.machine_id,s.effective_from,s.effective_to,s.state,s.effective_to FROM source s WHERE s.effective_to IS NOT NULL "
+        + "UNION SELECT s.machine_id,s.effective_from,s.effective_to,s.state,GREATEST(s.effective_from,i.starts_at) FROM source s JOIN analytics.manual_incident i ON i.machine_id=s.machine_id "
+        + "WHERE i.cancelled_at IS NULL AND i.starts_at> s.effective_from AND i.starts_at<COALESCE(s.effective_to,'infinity'::timestamptz) "
+        + "UNION SELECT s.machine_id,s.effective_from,s.effective_to,s.state,LEAST(i.ends_at,COALESCE(s.effective_to,i.ends_at)) FROM source s JOIN analytics.manual_incident i ON i.machine_id=s.machine_id "
+        + "WHERE i.cancelled_at IS NULL AND i.ends_at IS NOT NULL AND i.ends_at>s.effective_from AND i.ends_at<COALESCE(s.effective_to,'infinity'::timestamptz)), "
+        + "segments AS (SELECT machine_id,source_from,source_to,state,boundary effective_from,LEAD(boundary) OVER(PARTITION BY machine_id,source_from ORDER BY boundary) effective_to FROM (SELECT DISTINCT * FROM bounds) b), "
+        + "applied AS (SELECT s.*,st.id state_id,rs.id reason_incident,rs.loss_reason_id,COALESCE(st.state_override,s.state) effective_state "
+        + "FROM segments s LEFT JOIN LATERAL (SELECT i.id,i.state_override FROM analytics.manual_incident i WHERE i.machine_id=s.machine_id AND i.cancelled_at IS NULL "
+        + "AND i.state_override IS NOT NULL AND i.starts_at<=s.effective_from AND COALESCE(i.ends_at,'infinity'::timestamptz)>s.effective_from LIMIT 1) st ON true "
+        + "LEFT JOIN LATERAL (SELECT i.id,i.loss_reason_id FROM analytics.manual_incident i WHERE i.machine_id=s.machine_id AND i.cancelled_at IS NULL "
+        + "AND i.loss_reason_id IS NOT NULL AND i.starts_at<=s.effective_from AND COALESCE(i.ends_at,'infinity'::timestamptz)>s.effective_from LIMIT 1) rs ON true) "
+        + "INSERT INTO analytics.staging_machine_effective_state_interval(machine_id,effective_from,effective_to,effective_state,calculated_state,state_source,state_incident_id,loss_reason_id,reason_incident_id,calculated_at,work_generation) "
+        + "SELECT machine_id,effective_from,effective_to,effective_state,state,CASE WHEN state_id IS NULL THEN 'CALCULATED' ELSE 'MANUAL' END,state_id, "
+        + "CASE WHEN effective_state IN ('IDLE','DOWN','SETUP','PLANNED_STOP') THEN loss_reason_id END, "
+        + "CASE WHEN effective_state IN ('IDLE','DOWN','SETUP','PLANNED_STOP') THEN reason_incident END,clock_timestamp(),? FROM applied WHERE effective_from IS NOT NULL AND (source_to IS NULL OR effective_from<source_to)";
+    jdbc.update(sql,item.machineId(),item.generation(),item.generation());
+  }
+
   private void stageMachine(WorkItem item, Instant from, Instant to) {
     String metrics = "WITH machine AS (SELECT m.id,m.coverage_from,GREATEST(cs.data_through,?::timestamptz) data_through FROM equipment.machine m "
         + "LEFT JOIN analytics.machine_current_state cs ON cs.machine_id=m.id WHERE m.id=?), "
         + "minutes AS (SELECT g bucket_start FROM machine CROSS JOIN LATERAL generate_series(date_trunc('minute',GREATEST(machine.coverage_from,?::timestamptz)),?::timestamptz-interval '1 minute',interval '1 minute') g "
         + "WHERE machine.data_through IS NOT NULL AND g+interval '1 minute'<=machine.data_through), "
-        + "effective AS (SELECT i.machine_id,i.effective_from,i.effective_to,i.state,i.state calculated_state,NULL::uuid loss_reason_id FROM analytics.staging_machine_state_interval i WHERE i.machine_id=? AND i.work_generation=?), "
+        + "effective AS (SELECT i.machine_id,i.effective_from,i.effective_to,i.effective_state state,i.calculated_state,i.loss_reason_id FROM analytics.staging_machine_effective_state_interval i WHERE i.machine_id=? AND i.work_generation=?), "
         + "edges AS (SELECT machine_id,effective_from,state,LAG(state) OVER(PARTITION BY machine_id ORDER BY effective_from) previous_state FROM effective), "
         + "transitions AS (SELECT machine_id,date_trunc('minute',effective_from) bucket_start, "
         + "count(*) FILTER(WHERE previous_state='RUN' AND state IN ('IDLE','DOWN')) stop_count, "
@@ -142,7 +171,7 @@ public class MinuteProjectionService {
     jdbc.update(metrics, Timestamp.from(item.dirtyTo()),item.machineId(), Timestamp.from(from), Timestamp.from(to), item.machineId(), item.generation(),
         item.machineId(), item.generation(), item.machineId(), item.generation(), item.generation());
 
-    String losses = "WITH timeline AS (SELECT machine_id,effective_from,effective_to,state,NULL::uuid loss_reason_id FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?), "
+    String losses = "WITH timeline AS (SELECT machine_id,effective_from,effective_to,effective_state state,loss_reason_id FROM analytics.staging_machine_effective_state_interval WHERE machine_id=? AND work_generation=?), "
         + "context AS (SELECT machine_id,GREATEST(data_through,?::timestamptz) data_through FROM analytics.machine_current_state WHERE machine_id=?), "
         + "minutes AS (SELECT g bucket_start FROM generate_series(?::timestamptz,?::timestamptz-interval '1 minute',interval '1 minute') g), "
         + "overlap AS (SELECT i.machine_id,m.bucket_start,i.state,i.loss_reason_id, "

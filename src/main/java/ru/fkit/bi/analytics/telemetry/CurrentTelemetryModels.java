@@ -15,7 +15,7 @@ public final class CurrentTelemetryModels {
       String quality, List<String> validationFlags, Object lastUsableValue, Instant lastUsableObservedAt,
       String freshness, Instant dataThrough, Instant calculatedAt, boolean stale) { }
   public record CurrentState(String effectiveState, String calculatedState, String stateSource,
-      Instant stateSince, UUID matchedRuleId, UUID stateIncidentId, Object lossReason,
+      Instant stateSince, UUID matchedRuleId, UUID stateIncidentId, UUID reasonIncidentId, Object lossReason,
       String evaluationQuality, Instant lastTelemetryObservedAt, boolean underlyingOffline,
       Instant dataThrough, Instant calculatedAt, boolean stale, boolean recalculating) { }
 }

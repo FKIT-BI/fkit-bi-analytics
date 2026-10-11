@@ -251,6 +251,7 @@ paths:
       tags: [loss-reasons]
       operationId: createLossReason
       summary: Создать причину потерь
+      description: code уникален в Enterprise; name уникален без учёта регистра и крайних пробелов. Дубликат возвращает 409 LOSS_REASON_DUPLICATE.
       requestBody:
         required: true
         content:
@@ -286,7 +287,7 @@ paths:
       tags: [loss-reasons]
       operationId: updateLossReason
       summary: Изменить причину потерь
-      description: Category блокируется после первого использования.
+      description: code и Enterprise неизменны; category блокируется после первого использования. Дубликат нормализованного name возвращает 409 LOSS_REASON_DUPLICATE.
       requestBody:
         required: true
         content:
@@ -1234,7 +1235,7 @@ paths:
       tags: [incidents]
       operationId: createManualIncident
       summary: Создать ручной инцидент
-      description: Повтор с тем же Idempotency-Key и тем же body возвращает результат исходного создания; тот же ключ с другим body возвращает 409 IDEMPOTENCY_KEY_REUSED.
+      description: Повтор с тем же Idempotency-Key и тем же body возвращает исходный результат; тот же ключ с другим body возвращает 409 IDEMPOTENCY_KEY_REUSED. Повторный state или reason effect возвращает отдельный 409 INCIDENT_STATE_OVERLAP или INCIDENT_REASON_OVERLAP; reason-only без eligible state coverage возвращает 409 INCIDENT_HAS_NO_LOSS_INTERVAL.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -2327,6 +2328,7 @@ components:
         stateSince: { type: string, format: date-time }
         matchedRuleId: { type: [string, "null"], format: uuid }
         stateIncidentId: { type: [string, "null"], format: uuid }
+        reasonIncidentId: { type: [string, "null"], format: uuid }
         lossReason:
           oneOf:
             - $ref: '#/components/schemas/LossReasonSummary'
@@ -2783,6 +2785,7 @@ components:
       type: object
       additionalProperties: false
       required: [from]
+      description: Если to равен null, инцидент продолжается до текущего dataThrough; для reason-only ongoing аннотации from должен быть строго раньше dataThrough машины.
       anyOf:
         - required: [stateOverride]
         - required: [lossReasonId]

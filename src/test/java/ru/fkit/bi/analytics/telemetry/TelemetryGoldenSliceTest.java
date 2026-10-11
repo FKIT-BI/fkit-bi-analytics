@@ -8,6 +8,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -25,6 +27,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,6 +58,8 @@ class TelemetryGoldenSliceTest {
   @Autowired ObjectMapper json;
   @Autowired TelemetryHandoffScheduler handoff;
   @Autowired SignalProjectionWorker projectionWorker;
+  @Autowired ru.fkit.bi.analytics.aggregation.MinuteProjectionService minuteProjections;
+  @Autowired PlatformTransactionManager transactionManager;
 
   @Test @WithMockUser
   void acceptedRawAndDurableHintBecomeCurrentSignalAndStateReads() throws Exception {
@@ -161,6 +167,51 @@ class TelemetryGoldenSliceTest {
     assertEquals("SUCCEEDED",jdbc.queryForObject("SELECT status FROM analytics.state_recalculation_job WHERE id=?",String.class,replayId));
     assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=(SELECT generation FROM telemetry.recalculation_work WHERE machine_id=?)",Integer.class,machine,machine));
 
+    UUID reason=create("/api/v1/enterprises/"+enterprise+"/loss-reasons",Map.of("code","MANUAL_SETUP_"+suffix,
+        "name","Manual setup","category","CHANGEOVER"));
+    Instant overlayFrom=historicalObserved;
+    Map<String,Object> overlayRequest=new java.util.LinkedHashMap<>();overlayRequest.put("from",overlayFrom);overlayRequest.put("to",null);
+    overlayRequest.put("stateOverride","SETUP");overlayRequest.put("lossReasonId",reason);overlayRequest.put("comment","golden overlay");
+    String incidentBody=json.writeValueAsString(overlayRequest);
+    String incidentResponse=mvc.perform(post("/api/v1/machines/"+machine+"/incidents").header("Idempotency-Key","golden-overlay-"+suffix)
+        .contentType(MediaType.APPLICATION_JSON).content(incidentBody)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID incidentId=UUID.fromString(json.readTree(incidentResponse).path("id").asText());
+    projectionWorker.processAvailableWork();
+    var effective=jdbc.queryForMap("SELECT effective_state,calculated_state,state_source,state_incident_id,loss_reason_id,reason_incident_id "
+        +"FROM analytics.machine_effective_state_interval WHERE machine_id=? AND effective_from<=? AND COALESCE(effective_to,'infinity'::timestamptz)>?",
+        machine,Timestamp.from(overlayFrom),Timestamp.from(overlayFrom));
+    assertEquals("SETUP",effective.get("effective_state"));assertEquals("RUN",effective.get("calculated_state"));
+    assertEquals("MANUAL",effective.get("state_source"));assertEquals(incidentId,effective.get("state_incident_id"));
+    assertEquals(reason,effective.get("loss_reason_id"));assertEquals(incidentId,effective.get("reason_incident_id"));
+    assertTrue(jdbc.queryForObject("SELECT setup_duration_ms>0 FROM analytics.machine_metric_bucket_1m WHERE machine_id=? AND bucket_start=?",Boolean.class,machine,Timestamp.from(historyBucket)));
+    assertTrue(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM analytics.machine_loss_bucket_1m WHERE machine_id=? AND bucket_start=? AND loss_reason_id=?)",Boolean.class,machine,Timestamp.from(historyBucket),reason));
+
+    mvc.perform(get("/api/v1/machines/"+machine+"/current-state")).andExpect(status().isOk())
+        .andExpect(jsonPath("$.lossReason.id").value(reason.toString()))
+        .andExpect(jsonPath("$.reasonIncidentId").value(incidentId.toString()));
+    JsonNode overview=json.readTree(mvc.perform(get("/api/v1/enterprises/"+enterprise+"/operations/overview"))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    JsonNode currentOverview=overview.path("lines").get(0).path("machines").get(0).path("currentState");
+    assertEquals(reason.toString(),currentOverview.path("lossReason").path("id").asText());
+    assertEquals(incidentId.toString(),currentOverview.path("reasonIncidentId").asText());
+
+    JsonNode historical=json.readTree(mvc.perform(get("/api/v1/machines/"+machine+"/state-intervals")
+        .param("from",overlayFrom.toString()).param("to",historicalObserved.plusSeconds(300).toString()))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    JsonNode attributedInterval=null;
+    for(JsonNode item:historical.path("items"))if(incidentId.toString().equals(item.path("reasonIncidentId").asText()))attributedInterval=item;
+    assertNotNull(attributedInterval,historical.toString());
+    assertEquals(reason.toString(),attributedInterval.path("lossReason").path("id").asText());
+
+    JsonNode chronometry=json.readTree(mvc.perform(get("/api/v1/machines/"+machine+"/chronometry")
+        .param("shiftDate",LocalDate.now(ZoneOffset.UTC).toString())).andExpect(status().isOk())
+        .andReturn().getResponse().getContentAsString());
+    JsonNode attributedChronometry=null;
+    for(JsonNode occurrence:chronometry.path("occurrences"))for(JsonNode item:occurrence.path("intervals"))
+      if(incidentId.toString().equals(item.path("reasonIncidentId").asText()))attributedChronometry=item;
+    assertNotNull(attributedChronometry,chronometry.toString());
+    assertEquals(reason.toString(),attributedChronometry.path("lossReason").path("id").asText());
+
     jdbc.update("INSERT INTO equipment.telemetry_signal(id,machine_id,code,name,value_type,signal_kind,semantic_code) "
         + "SELECT md5(? || ':' || n::text)::uuid,?, 'EXTRA_' || lpad(n::text,3,'0'), 'Extra ' || n::text, "
         + "'DOUBLE','GAUGE','ROTATIONAL_SPEED' FROM generate_series(1,501) n", machine.toString(), machine);
@@ -187,6 +238,79 @@ class TelemetryGoldenSliceTest {
         .andExpect(jsonPath("$.items[0].lastReceivedValue").value(120))
         .andExpect(jsonPath("$.items[0].lastUsableValue").value(120))
         .andExpect(jsonPath("$.items[0].freshness").value("STALE"));
+  }
+
+  @Test @WithMockUser
+  void ongoingReasonTracksEligibleStatesOnlyAndReplayPublishesAsOneGeneration() throws Exception {
+    String suffix=UUID.randomUUID().toString().replace("-","").substring(0,8).toUpperCase();
+    UUID enterprise=create("/api/v1/enterprises",Map.of("code","ATTR_"+suffix,"name","Attribution","timezone","UTC"));
+    UUID line=create("/api/v1/enterprises/"+enterprise+"/lines",Map.of("code","LINE_"+suffix,"name","Line"));
+    UUID machine=create("/api/v1/enterprises/"+enterprise+"/machines",Map.of("code","M_"+suffix,"name","Machine","lineId",line,"parameters",java.util.List.of()));
+    UUID reason=create("/api/v1/enterprises/"+enterprise+"/loss-reasons",Map.of("code","ONGOING_"+suffix,"name","Ongoing reason","category","PROCESS"));
+    Instant base=Instant.now().truncatedTo(ChronoUnit.MINUTES).minusSeconds(240),through=base.plusSeconds(180),nextThrough=base.plusSeconds(240);
+    jdbc.update("UPDATE equipment.machine SET coverage_from=? WHERE id=?",Timestamp.from(base),machine);
+    jdbc.update("INSERT INTO analytics.machine_current_state(machine_id,coverage_from,state,state_since,evaluation_quality,data_through,calculated_at,recalculating) VALUES(?,?,'OFFLINE',?,'COMPLETE',?,clock_timestamp(),false)",machine,Timestamp.from(base),Timestamp.from(base),Timestamp.from(through));
+    jdbc.update("INSERT INTO analytics.machine_state_interval(machine_id,effective_from,effective_to,state,detected_at,calculated_at) VALUES(?,?,?,'IDLE',clock_timestamp(),clock_timestamp()),(?,?,?,'RUN',clock_timestamp(),clock_timestamp()),(?,?,?,'OFFLINE',clock_timestamp(),clock_timestamp())",
+        machine,Timestamp.from(base),Timestamp.from(base.plusSeconds(60)),machine,Timestamp.from(base.plusSeconds(60)),Timestamp.from(base.plusSeconds(120)),machine,Timestamp.from(base.plusSeconds(120)),Timestamp.from(through));
+    String incidentResponse=mvc.perform(post("/api/v1/machines/"+machine+"/incidents").header("Idempotency-Key","ongoing-reason-"+suffix)
+        .contentType(MediaType.APPLICATION_JSON).content("{\"from\":\""+base+"\",\"to\":null,\"stateOverride\":null,\"lossReasonId\":\""+reason+"\"}"))
+        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    UUID reasonIncidentId=UUID.fromString(json.readTree(incidentResponse).path("id").asText());
+
+    mvc.perform(get("/api/v1/machines/"+machine+"/current-state"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.stale").value(true))
+        .andExpect(jsonPath("$.effectiveState").value("OFFLINE"));
+
+    long generation=701L;
+    seedProjectionStates(machine,generation,base,through,new String[]{"IDLE","RUN","OFFLINE"});
+    var firstWork=new ru.fkit.bi.analytics.telemetry.TelemetryWorkRepository.WorkItem(machine,base,through,generation,null,0,null);
+    minuteProjections.stage(firstWork);
+    TransactionTemplate tx=new TransactionTemplate(transactionManager);
+    tx.executeWithoutResult(status->minuteProjections.publish(firstWork));
+    var firstTimeline=jdbc.queryForList("SELECT effective_from,effective_to,effective_state,loss_reason_id,reason_incident_id FROM analytics.machine_effective_state_interval WHERE machine_id=? ORDER BY effective_from",machine);
+    assertEquals(3,firstTimeline.size(),firstTimeline.toString());
+    assertEquals(Timestamp.from(base),firstTimeline.get(0).get("effective_from"));
+    assertEquals(Timestamp.from(base.plusSeconds(60)),firstTimeline.get(0).get("effective_to"));
+    assertEquals("IDLE",firstTimeline.get(0).get("effective_state"));
+    assertEquals(reason,firstTimeline.get(0).get("loss_reason_id"));
+    assertEquals(reasonIncidentId,firstTimeline.get(0).get("reason_incident_id"));
+    assertEquals("RUN",firstTimeline.get(1).get("effective_state"));
+    assertEquals(null,firstTimeline.get(1).get("loss_reason_id"));
+    assertEquals(null,firstTimeline.get(1).get("reason_incident_id"));
+    assertEquals("OFFLINE",firstTimeline.get(2).get("effective_state"));
+    assertEquals(null,firstTimeline.get(2).get("loss_reason_id"));
+    assertEquals(null,firstTimeline.get(2).get("reason_incident_id"));
+    assertEquals(60_000L,jdbc.queryForObject("SELECT sum(duration_ms) FROM analytics.machine_loss_bucket_1m WHERE machine_id=? AND loss_reason_id=?",Long.class,machine,reason));
+    assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM analytics.machine_effective_state_interval WHERE machine_id=? AND effective_state IN ('RUN','OFFLINE') AND loss_reason_id IS NOT NULL",Integer.class,machine));
+    assertEquals(60_000L,jdbc.queryForObject("SELECT run_duration_ms FROM analytics.machine_metric_bucket_1m WHERE machine_id=? AND bucket_start=?",Long.class,machine,Timestamp.from(base.plusSeconds(60))));
+
+    // Simulate newly arrived coverage plus a late state replay: the former RUN minute is now IDLE.
+    jdbc.update("UPDATE analytics.machine_current_state SET data_through=? WHERE machine_id=?",Timestamp.from(nextThrough),machine);
+    long replayGeneration=702L;
+    seedProjectionStates(machine,replayGeneration,base,nextThrough,new String[]{"IDLE","IDLE","OFFLINE","IDLE"});
+    var replayWork=new ru.fkit.bi.analytics.telemetry.TelemetryWorkRepository.WorkItem(machine,base,nextThrough,replayGeneration,null,0,null);
+    minuteProjections.stage(replayWork);
+    assertEquals(60_000L,jdbc.queryForObject("SELECT run_duration_ms FROM analytics.machine_metric_bucket_1m WHERE machine_id=? AND bucket_start=?",Long.class,machine,Timestamp.from(base.plusSeconds(60))),"staged replay must not leak before publication");
+    assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM analytics.machine_loss_bucket_1m WHERE machine_id=? AND bucket_start=? AND loss_reason_id=?",Integer.class,machine,Timestamp.from(base.plusSeconds(180)),reason));
+    tx.executeWithoutResult(status->minuteProjections.publish(replayWork));
+    var replayedTimeline=jdbc.queryForList("SELECT effective_from,effective_to,effective_state,loss_reason_id,reason_incident_id FROM analytics.machine_effective_state_interval WHERE machine_id=? ORDER BY effective_from",machine);
+    assertEquals(4,replayedTimeline.size(),replayedTimeline.toString());
+    assertEquals(Timestamp.from(base.plusSeconds(180)),replayedTimeline.get(3).get("effective_from"));
+    assertEquals(Timestamp.from(nextThrough),replayedTimeline.get(3).get("effective_to"));
+    assertEquals("IDLE",replayedTimeline.get(3).get("effective_state"));
+    assertEquals(reason,replayedTimeline.get(3).get("loss_reason_id"));
+    assertEquals(reasonIncidentId,replayedTimeline.get(3).get("reason_incident_id"));
+    assertEquals(60_000L,jdbc.queryForObject("SELECT idle_duration_ms FROM analytics.machine_metric_bucket_1m WHERE machine_id=? AND bucket_start=?",Long.class,machine,Timestamp.from(base.plusSeconds(60))));
+    assertEquals(60_000L,jdbc.queryForObject("SELECT sum(duration_ms) FROM analytics.machine_loss_bucket_1m WHERE machine_id=? AND bucket_start=? AND loss_reason_id=?",Long.class,machine,Timestamp.from(base.plusSeconds(180)),reason));
+  }
+
+  private void seedProjectionStates(UUID machine,long generation,Instant from,Instant to,String[] states){
+    jdbc.update("DELETE FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?",machine,generation);
+    for(int i=0;i<states.length;i++){
+      Instant start=from.plusSeconds(60L*i),end=start.plusSeconds(60);
+      if(end.isAfter(to))end=to;
+      jdbc.update("INSERT INTO analytics.staging_machine_state_interval(machine_id,effective_from,effective_to,state,detected_at,work_generation) VALUES(?,?,?,?,clock_timestamp(),?)",machine,Timestamp.from(start),Timestamp.from(end),states[i],generation);
+    }
   }
 
   private UUID create(String path,Map<String,Object> body)throws Exception {
