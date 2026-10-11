@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: 001-generator-run-control.sql
+      relativeToChangelogFile: true

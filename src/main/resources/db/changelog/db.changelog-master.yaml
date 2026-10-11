@@ -35,3 +35,6 @@ databaseChangeLog:
   - include:
       file: releases/012-manual-loss-attribution/changelog.yaml
       relativeToChangelogFile: true
+  - include:
+      file: releases/013-generator-run-control/changelog.yaml
+      relativeToChangelogFile: true
