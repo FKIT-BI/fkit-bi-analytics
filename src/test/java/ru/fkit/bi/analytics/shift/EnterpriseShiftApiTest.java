@@ -44,7 +44,6 @@ class EnterpriseShiftApiTest {
     jdbc.execute("drop table if exists incident.incident");
     jdbc.execute("drop table if exists analytics.machine_metric_bucket_1m");
     jdbc.execute("drop table if exists analytics.machine_loss_bucket_1m");
-    jdbc.execute("drop table if exists generator.generation_run");
     jdbc.update("delete from analytics.machine_state_config");
     jdbc.update("delete from telemetry.signal_usage");
     jdbc.update("delete from equipment.telemetry_signal");
@@ -183,6 +182,22 @@ class EnterpriseShiftApiTest {
       org.assertj.core.api.Assertions.assertThat(successful).isEqualTo(1);
     }
     org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("select count(*) from equipment.shift where enterprise_id=?",Integer.class,UUID.fromString(enterpriseId))).isEqualTo(1);
+  }
+
+  @Test @WithMockUser void conflictingShiftUpdateKeepsPreviouslyCommittedSchedule() throws Exception {
+    String enterpriseId=createEnterprise("PLANT_1");
+    createShift(enterpriseId,"SHIFT_A","08:00","16:00");
+    String shiftB=createShift(enterpriseId,"SHIFT_B","16:00","08:00");
+
+    mvc.perform(put("/api/v1/shifts/"+shiftB).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"Changed\",\"startLocalTime\":\"15:00\",\"endLocalTime\":\"08:00\",\"validFrom\":\"2026-01-01\",\"validTo\":null,\"sortOrder\":0}"))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SHIFT_SCHEDULE_CONFLICT"));
+    mvc.perform(get("/api/v1/shifts/"+shiftB)).andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("Shift A"))
+        .andExpect(jsonPath("$.startLocalTime").value("16:00:00"))
+        .andExpect(jsonPath("$.endLocalTime").value("08:00:00"));
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from equipment.shift where enterprise_id=?",Integer.class,UUID.fromString(enterpriseId))).isEqualTo(2);
   }
 
   private String createEnterprise(String code) throws Exception {
