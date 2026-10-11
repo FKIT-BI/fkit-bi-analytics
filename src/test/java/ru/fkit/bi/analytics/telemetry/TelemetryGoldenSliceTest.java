@@ -290,6 +290,13 @@ class TelemetryGoldenSliceTest {
     seedProjectionStates(machine,replayGeneration,base,nextThrough,new String[]{"IDLE","IDLE","OFFLINE","IDLE"});
     var replayWork=new ru.fkit.bi.analytics.telemetry.TelemetryWorkRepository.WorkItem(machine,base,nextThrough,replayGeneration,null,0,null);
     minuteProjections.stage(replayWork);
+    Integer stagedIntervals=jdbc.queryForObject("SELECT count(*) FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?",Integer.class,machine,replayGeneration);
+    assertNotNull(stagedIntervals);
+    assertTrue(stagedIntervals>0,"replay must leave a durable staged generation before publication");
+    // Model a worker restart after durable staging but before atomic publication.
+    // Rebuilding the same generation must replace staging rows, not duplicate them.
+    minuteProjections.stage(replayWork);
+    assertEquals(stagedIntervals,jdbc.queryForObject("SELECT count(*) FROM analytics.staging_machine_state_interval WHERE machine_id=? AND work_generation=?",Integer.class,machine,replayGeneration));
     assertEquals(60_000L,jdbc.queryForObject("SELECT run_duration_ms FROM analytics.machine_metric_bucket_1m WHERE machine_id=? AND bucket_start=?",Long.class,machine,Timestamp.from(base.plusSeconds(60))),"staged replay must not leak before publication");
     assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM analytics.machine_loss_bucket_1m WHERE machine_id=? AND bucket_start=? AND loss_reason_id=?",Integer.class,machine,Timestamp.from(base.plusSeconds(180)),reason));
     tx.executeWithoutResult(status->minuteProjections.publish(replayWork));

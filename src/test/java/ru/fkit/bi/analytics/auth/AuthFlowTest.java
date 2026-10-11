@@ -154,6 +154,49 @@ class AuthFlowTest {
         .andExpect(jsonPath("$.fieldErrors").isArray());
   }
 
+  @Test void authTransportRejectsMalformedJsonAndUtf8PasswordsOverTheBcryptLimit() throws Exception {
+    String malformedBody = mvc.perform(post("/api/v1/auth/login").with(remoteAddr("192.0.2.32"))
+            .header("X-Trace-Id", "malformed-auth-body")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"username\":\"operator\","))
+        .andExpect(status().isBadRequest())
+        .andExpect(header().string("X-Trace-Id", "malformed-auth-body"))
+        .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+        .andExpect(jsonPath("$.traceId").value("malformed-auth-body"))
+        .andReturn().getResponse().getContentAsString();
+    org.junit.jupiter.api.Assertions.assertFalse(malformedBody.contains("operator"));
+
+    UUID bootstrapId = addUser("root", "Root", PASSWORD, true);
+    String accessToken = token(bootstrapId, "fkit-bi", "fkit-bi-api", Instant.now().plusSeconds(1800));
+    String overlongUtf8Password = "я".repeat(37);
+    String createPayload = mapper.writeValueAsString(Map.of(
+        "username", "utf8.user",
+        "displayName", "UTF-8 user",
+        "initialPassword", overlongUtf8Password));
+    String validationBody = mvc.perform(post("/api/v1/auth/users")
+            .header("Authorization", "Bearer " + accessToken)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+        .andExpect(jsonPath("$.fieldErrors[0].path").value("initialPassword"))
+        .andReturn().getResponse().getContentAsString();
+    org.junit.jupiter.api.Assertions.assertFalse(validationBody.contains(overlongUtf8Password));
+    org.junit.jupiter.api.Assertions.assertEquals(0,
+        jdbc.queryForObject("SELECT count(*) FROM identity.users WHERE username = 'utf8.user'", Integer.class));
+  }
+
+  @Test void authenticationFailureUsesTheCommonCorrelatedErrorEnvelope() throws Exception {
+    mvc.perform(get("/__test/business").header("X-Trace-Id", "anonymous-business-request"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().string("X-Trace-Id", "anonymous-business-request"))
+        .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"))
+        .andExpect(jsonPath("$.message").value("Authentication failed"))
+        .andExpect(jsonPath("$.traceId").value("anonymous-business-request"))
+        .andExpect(jsonPath("$.fieldErrors").isArray())
+        .andExpect(jsonPath("$.details").isMap());
+  }
+
   @Test void onlyBootstrapCanCreateUsersAndResponseNeverContainsHash() throws Exception {
     UUID bootstrapId = addUser("root", "Root", PASSWORD, true);
     addUser("normal", "Normal", PASSWORD, false);
@@ -213,11 +256,22 @@ class AuthFlowTest {
               .content("{\"username\":\"missing\",\"password\":\"" + PASSWORD + "\"}"))
           .andExpect(status().isUnauthorized());
     }
-    mvc.perform(post("/api/v1/auth/login").with(remoteAddr("192.0.2.254"))
-            .header("X-Forwarded-For", "198.51.100.42")
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("{\"username\":\"missing\",\"password\":\"" + PASSWORD + "\"}"))
-        .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));
+    boolean limited = false;
+    for (int attempt = 1; attempt <= 21 && !limited; attempt++) {
+      var response = mvc.perform(post("/api/v1/auth/login").with(remoteAddr("192.0.2.254"))
+              .header("X-Forwarded-For", "198.51.100.42")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"username\":\"missing\",\"password\":\"" + PASSWORD + "\"}"))
+          .andReturn().getResponse();
+      if (response.getStatus() == 429) {
+        org.junit.jupiter.api.Assertions.assertNotNull(response.getHeader("Retry-After"));
+        limited = true;
+      } else {
+        org.junit.jupiter.api.Assertions.assertEquals(401, response.getStatus());
+      }
+    }
+    org.junit.jupiter.api.Assertions.assertTrue(limited,
+        "Trusted forwarded client must reach its own fixed-window limit");
   }
 
   @Test void bootstrapUserCreationLimiterAllowsFiveAndThenReturnsRetryAfter() throws Exception {

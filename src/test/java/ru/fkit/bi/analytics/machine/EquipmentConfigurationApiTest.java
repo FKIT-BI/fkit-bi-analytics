@@ -93,11 +93,99 @@ class EquipmentConfigurationApiTest {
         .content(productionSignal("OUTPUT_B"))).andExpect(status().isCreated());
   }
 
+  @Test @WithMockUser void completeConfigurationJourneyPreservesOwnershipAndNonCascadingStatuses() throws Exception {
+    String enterprise=createEnterprise("PLANT_A");
+    createShift(enterprise,"DAY","08:00","16:00");
+    createShift(enterprise,"NIGHT","16:00","08:00");
+    String line=createLine(enterprise,"LINE_A");
+    String otherLine=createLine(enterprise,"LINE_B");
+    String directlyAssigned=createMachine(enterprise,line,"M_DIRECT");
+    String initiallyFree=createMachine(enterprise,null,"M_FREE");
+
+    mvc.perform(post("/api/v1/lines/"+line+"/machine-assignments").contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("machineIds",List.of(initiallyFree)))))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].lineId").value(line));
+    mvc.perform(post("/api/v1/lines/"+otherLine+"/machine-assignments").contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("machineIds",List.of(initiallyFree)))))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("MACHINE_ASSIGNMENT_CONFLICT"));
+    mvc.perform(get("/api/v1/machines/"+initiallyFree))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.lineId").value(line));
+
+    String component=createComponent(directlyAssigned,"DRIVE",null);
+    String signal=createSignal(directlyAssigned,component,"SPEED","ROTATIONAL_SPEED");
+    mvc.perform(get("/api/v1/machines/"+directlyAssigned+"/components"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].machineId").value(directlyAssigned));
+    mvc.perform(get("/api/v1/machines/"+directlyAssigned+"/telemetry-signals"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].componentId").value(component));
+
+    mvc.perform(put("/api/v1/machines/"+directlyAssigned+"/state-configuration")
+            .contentType(MediaType.APPLICATION_JSON).content(stateConfiguration(signal,"100")))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/v1/machines/"+directlyAssigned+"/activation-readiness"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(true));
+    mvc.perform(put("/api/v1/machines/"+directlyAssigned+"/status")
+            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIVE\"}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+
+    mvc.perform(put("/api/v1/lines/"+line+"/status").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"DISABLED\"}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DISABLED"));
+    mvc.perform(get("/api/v1/machines/"+directlyAssigned))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+    mvc.perform(get("/api/v1/machines/"+directlyAssigned+"/activation-readiness"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(false))
+        .andExpect(jsonPath("$.errors[0].code").value("LINE_DISABLED"));
+    mvc.perform(get("/api/v1/components/"+component)).andExpect(status().isOk());
+    mvc.perform(get("/api/v1/telemetry-signals/"+signal)).andExpect(status().isOk());
+  }
+
+  @Test @WithMockUser void invalidSignalOwnershipAndTypeLeaveNoPartialRows() throws Exception {
+    String enterprise=createEnterprise("PLANT_A");
+    String machine=createMachine(enterprise,null,"M_A");
+    String foreignMachine=createMachine(enterprise,null,"M_B");
+    String foreignComponent=createComponent(foreignMachine,"FOREIGN",null);
+
+    mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals")
+            .contentType(MediaType.APPLICATION_JSON).content(signalCreate(foreignComponent,"TEMP","DOUBLE","GAUGE","TEMPERATURE",null)))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SIGNAL_COMPONENT_OWNER_CONFLICT"));
+    mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals")
+            .contentType(MediaType.APPLICATION_JSON).content(signalCreate(null,"FLAG","BOOLEAN","COUNTER","CUSTOM","CUSTOM_FLAG")))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SIGNAL_TYPE_KIND_MISMATCH"));
+
+    org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+        "select count(*) from equipment.telemetry_signal where machine_id=?",Integer.class,UUID.fromString(machine))).isZero();
+  }
+
+  @Test @WithMockUser void rejectedStateConfigurationReplacementKeepsLastCommittedDocument() throws Exception {
+    String enterprise=createEnterprise("PLANT_A");String line=createLine(enterprise,"LINE_A");
+    String machine=createMachine(enterprise,line,"M_A");String signal=createSignal(machine);
+    String valid=stateConfiguration(signal,"0");
+    mvc.perform(put("/api/v1/machines/"+machine+"/state-configuration")
+            .contentType(MediaType.APPLICATION_JSON).content(valid))
+        .andExpect(status().isOk());
+    JsonNode before=json.readTree(mvc.perform(get("/api/v1/machines/"+machine+"/state-configuration"))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+
+    mvc.perform(put("/api/v1/machines/"+machine+"/state-configuration")
+            .contentType(MediaType.APPLICATION_JSON).content(stateConfiguration(signal,"not-a-number")))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("STATE_CONFIGURATION_INVALID"))
+        .andExpect(jsonPath("$.details.errors[0].path").value("rules[0].enterCondition.value"));
+    JsonNode after=json.readTree(mvc.perform(get("/api/v1/machines/"+machine+"/state-configuration"))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+
+    org.assertj.core.api.Assertions.assertThat(after.get("defaultState")).isEqualTo(before.get("defaultState"));
+    org.assertj.core.api.Assertions.assertThat(after.get("offlineAfterMs")).isEqualTo(before.get("offlineAfterMs"));
+    org.assertj.core.api.Assertions.assertThat(after.get("rules")).isEqualTo(before.get("rules"));
+  }
+
   private String createEnterprise(String code)throws Exception{return id(mvc.perform(post("/api/v1/enterprises").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\""+code+"\",\"name\":\"Plant\",\"timezone\":\"Europe/Moscow\"}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
   private String createLine(String enterprise,String code)throws Exception{return id(mvc.perform(post("/api/v1/enterprises/"+enterprise+"/lines").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\""+code+"\",\"name\":\"Line\"}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
+  private String createShift(String enterprise,String code,String start,String end)throws Exception{return id(mvc.perform(post("/api/v1/enterprises/"+enterprise+"/shifts").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\""+code+"\",\"name\":\""+code+"\",\"startLocalTime\":\""+start+"\",\"endLocalTime\":\""+end+"\",\"validFrom\":\"2026-01-01\"}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
   private String createMachine(String enterprise,String line,String code)throws Exception{Map<String,Object> body=new LinkedHashMap<>();body.put("code",code);body.put("name",code);body.put("lineId",line);body.put("parameters",List.of());return id(mvc.perform(post("/api/v1/enterprises/"+enterprise+"/machines").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body))).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
   private String createComponent(String machine,String code,String parent)throws Exception{return id(mvc.perform(post("/api/v1/machines/"+machine+"/components").contentType(MediaType.APPLICATION_JSON).content("{\"parentComponentId\":"+(parent==null?"null":"\""+parent+"\"")+",\"code\":\""+code+"\",\"name\":\""+code+"\",\"kind\":\"OTHER\",\"sortOrder\":0,\"parameters\":[]}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
   private String createSignal(String machine)throws Exception{return id(mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"TEMP\",\"name\":\"Temperature\",\"valueType\":\"DOUBLE\",\"signalKind\":\"GAUGE\",\"semanticCode\":\"TEMPERATURE\",\"staleAfterMs\":60000,\"featured\":true}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
+  private String createSignal(String machine,String component,String code,String semantic)throws Exception{return id(mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals").contentType(MediaType.APPLICATION_JSON).content(signalCreate(component,code,"DOUBLE","GAUGE",semantic,null))).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
+  private String signalCreate(String component,String code,String valueType,String kind,String semantic,String customSemantic)throws Exception{Map<String,Object> body=new LinkedHashMap<>();body.put("componentId",component);body.put("code",code);body.put("name",code);body.put("valueType",valueType);body.put("signalKind",kind);body.put("semanticCode",semantic);body.put("customSemanticCode",customSemantic);body.put("staleAfterMs",60000);body.put("featured",true);return json.writeValueAsString(body);}
   private String createProductionSignal(String machine,String code)throws Exception{return id(mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals").contentType(MediaType.APPLICATION_JSON).content(productionSignal(code))).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());}
   private String productionSignal(String code){return "{\"code\":\""+code+"\",\"name\":\"Output\",\"valueType\":\"LONG\",\"signalKind\":\"COUNTER\",\"semanticCode\":\"PRODUCTION_COUNT\",\"unitCode\":\"PCS\",\"staleAfterMs\":60000}";}
   private String signalUpdate(String semantic){return "{\"name\":\"Temperature\",\"valueType\":\"DOUBLE\",\"signalKind\":\"GAUGE\",\"semanticCode\":\""+semantic+"\",\"staleAfterMs\":60000,\"featured\":true}";}
