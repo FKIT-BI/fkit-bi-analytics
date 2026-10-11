@@ -5,9 +5,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import java.util.Arrays;
 
 @SpringBootApplication
+@EnableScheduling
 public class AnalyticsApplication {
   public static void main(String[] args) {
     if (args.length > 0 && "bootstrap-user".equals(args[0])) {

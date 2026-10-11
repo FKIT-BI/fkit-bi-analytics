@@ -956,6 +956,22 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
+  /machines/{machineId}/current-state:
+    parameters:
+      - $ref: '#/components/parameters/MachineId'
+    get:
+      tags: [operations]
+      operationId: getMachineCurrentState
+      summary: Получить committed current state машины
+      description: Возвращает только подготовленную current projection, не сканируя raw telemetry.
+      responses:
+        '200':
+          description: Текущее рассчитанное состояние
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /analytics/summary:
     get:
       tags: [analytics]
@@ -1326,6 +1342,10 @@ paths:
       tags: [recalculations]
       operationId: createStateRecalculation
       summary: Запустить PERIOD или ALL перерасчёт
+      description: >
+        PERIOD строится от устойчивого предшествующего state interval и доступного raw-контекста.
+        ALL пересчитывает от coverageFrom; оба режима требуют сохранённые raw partitions
+        и не более 500000 raw events. При недоступном контексте возвращается 422.
       requestBody:
         required: true
         content:
@@ -1357,6 +1377,19 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/StateRecalculation' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [recalculations]
+      operationId: cancelStateRecalculation
+      summary: Отменить перерасчёт до захвата worker
+      description: Только PENDING job без активной worker lease отменяется; после claim возвращается 409.
+      responses:
+        '200':
+          description: Отменённая job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateRecalculation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
 components:
   securitySchemes:
@@ -1571,7 +1604,7 @@ components:
       enum: [STATE_OVERRIDE, LOSS_ANNOTATION, STATE_OVERRIDE_WITH_REASON]
     RecalculationStatus:
       type: string
-      enum: [PENDING, RUNNING, SUCCEEDED, FAILED]
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]
 
     FieldError:
       type: object
@@ -2286,7 +2319,7 @@ components:
         recalculating: { type: boolean }
     CurrentState:
       type: object
-      required: [effectiveState, calculatedState, stateSource, stateSince, evaluationQuality]
+      required: [effectiveState, calculatedState, stateSource, stateSince, evaluationQuality, dataThrough, calculatedAt, stale, recalculating]
       properties:
         effectiveState: { $ref: '#/components/schemas/MachineState' }
         calculatedState: { $ref: '#/components/schemas/MachineState' }
@@ -2301,6 +2334,10 @@ components:
         evaluationQuality: { $ref: '#/components/schemas/EvaluationQuality' }
         lastTelemetryObservedAt: { type: [string, "null"], format: date-time }
         underlyingOffline: { type: boolean }
+        dataThrough: { type: string, format: date-time }
+        calculatedAt: { type: string, format: date-time }
+        stale: { type: boolean }
+        recalculating: { type: boolean }
     LossReasonSummary:
       type: object
       required: [id, code, name, category, status]
@@ -2350,13 +2387,16 @@ components:
         stale: { type: boolean }
     CurrentTelemetryResponse:
       type: object
-      required: [machineId, items, currency]
+      required: [machineId, items, currency, truncated]
       properties:
         machineId: { type: string, format: uuid }
         items:
           type: array
           items: { $ref: '#/components/schemas/CurrentSignalValue' }
         currency: { $ref: '#/components/schemas/ProjectionCurrency' }
+        truncated:
+          type: boolean
+          description: True when more than 500 active signals matched; filter by signalId for targeted reads.
     MachineOperationsCurrent:
       type: object
       required: [machine, featuredSignals, currency]

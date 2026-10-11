@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: 001-signal-current.sql
+      relativeToChangelogFile: true

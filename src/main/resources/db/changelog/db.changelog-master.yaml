@@ -17,3 +17,18 @@ databaseChangeLog:
   - include:
       file: releases/006-state-configuration/changelog.yaml
       relativeToChangelogFile: true
+  - include:
+      file: releases/007-raw-telemetry/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/008-telemetry-handoff/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/009-signal-current/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/010-machine-state-projection/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/011-historical-projections/changelog.yaml
+      relativeToChangelogFile: true

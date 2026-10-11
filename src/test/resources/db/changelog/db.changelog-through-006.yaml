@@ -1,0 +1,19 @@
+databaseChangeLog:
+  - include:
+      file: releases/001-foundation/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/002-authentication/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/003-enterprise-shifts/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/004-lines-machines/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/005-components-signals/changelog.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: releases/006-state-configuration/changelog.yaml
+      relativeToChangelogFile: true
