@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-001-enterprise-shifts
+      author: fkit-bi
+      changes:
+        - sqlFile:
+            path: 001-create-enterprise-shifts.sql
+            relativeToChangelogFile: true

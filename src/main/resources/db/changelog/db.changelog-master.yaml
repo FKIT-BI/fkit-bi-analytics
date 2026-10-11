@@ -5,3 +5,6 @@ databaseChangeLog:
   - include:
       file: releases/002-authentication/changelog.yaml
       relativeToChangelogFile: true
+  - include:
+      file: releases/003-enterprise-shifts/changelog.yaml
+      relativeToChangelogFile: true

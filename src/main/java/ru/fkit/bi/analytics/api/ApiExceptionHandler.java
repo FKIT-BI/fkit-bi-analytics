@@ -45,6 +45,13 @@ public class ApiExceptionHandler {
     return response.body(errorBody(request, exception.code(), exception.getMessage()));
   }
 
+  @ExceptionHandler(BusinessException.class)
+  ResponseEntity<ErrorResponse> businessError(BusinessException exception, HttpServletRequest request) {
+    ErrorResponse body = errorBody(request, exception.code(), exception.getMessage());
+    return ResponseEntity.status(exception.status()).body(new ErrorResponse(body.code(), body.message(), body.traceId(),
+        exception.fields(), exception.details()));
+  }
+
   @ExceptionHandler(org.springframework.security.authentication.BadCredentialsException.class)
   ResponseEntity<ErrorResponse> authenticationFailed(HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
