@@ -10,6 +10,21 @@ spring:
   liquibase:
     enabled: true
     change-log: classpath:/db/changelog/db.changelog-master.yaml
+  mvc:
+    problemdetails:
+      enabled: false
+server:
+  forward-headers-strategy: framework
+springdoc:
+  swagger-ui:
+    url: ../openapi/analytics-api-draft.yaml
+    config-url: ../v3/api-docs/swagger-config
+    disable-swagger-default-url: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+  api-docs:
+    enabled: true
+  show-actuator: false
 fkit:
   schema:
     expected-release: 002-authentication

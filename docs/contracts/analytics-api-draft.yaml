@@ -10,7 +10,7 @@ info:
     ручных инцидентов и фонового перерасчёта FKIT BI.
     Raw telemetry ingestion и управление generator вынесены за границы контракта.
 servers:
-  - url: /api/v1
+  - url: ../api/v1
 security:
   - bearerAuth: []
 tags:
@@ -30,13 +30,72 @@ tags:
   - { name: intervals, description: Эффективные интервалы состояний }
   - { name: incidents, description: Ручные инциденты }
   - { name: recalculations, description: Фоновый перерасчёт состояний }
+  - { name: authentication, description: Вход и первичная аутентификация }
+  - { name: users, description: Создание учётных записей bootstrap-пользователем }
 
 paths:
+  /auth/login:
+    post:
+      tags: [authentication]
+      operationId: login
+      summary: Получить access token
+      description: Публичный вход. Неверные credentials дают одинаковую ошибку для неизвестного пользователя и неверного пароля; лимит — 10 запросов в минуту с доверенного публичного IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            examples:
+              operatorLogin:
+                summary: Вход зарегистрированного пользователя
+                value: { username: operator, password: 'replace-with-user-password' }
+      responses:
+        '200':
+          description: JWT access token и сведения об аутентифицированном пользователе
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /auth/users:
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Создать учётную запись
+      description: Создаёт пользователя только для действующего bootstrap account; лимит — 5 запросов в минуту. Полномочие повторно проверяется сервером по записи в БД.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+            examples:
+              operatorAccount:
+                summary: Создание учётной записи оператора
+                value: { username: engineer, displayName: 'Инженер смены', initialPassword: 'replace-with-initial-password' }
+      responses:
+        '201':
+          description: Учётная запись создана
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /enterprises:
     get:
       tags: [enterprises]
       operationId: listEnterprises
       summary: Список предприятий
+      description: Возвращает страницу предприятий с фильтрами по статусу и поиску; page и size управляют пагинацией.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
         - $ref: '#/components/parameters/Search'
@@ -54,6 +113,7 @@ paths:
       tags: [enterprises]
       operationId: createEnterprise
       summary: Создать предприятие
+      description: Создаёт предприятие с уникальным кодом и timezone, используемой для календарей и временных проекций.
       requestBody:
         required: true
         content:
@@ -78,6 +138,7 @@ paths:
       tags: [enterprises]
       operationId: getEnterprise
       summary: Получить предприятие
+      description: Возвращает код, имя, timezone и статус одного предприятия.
       responses:
         '200':
           description: Предприятие
@@ -134,10 +195,12 @@ paths:
       tags: [shifts]
       operationId: listShifts
       summary: Список смен предприятия
+      description: Возвращает смены предприятия; validOn отбирает определения, действующие в указанную локальную дату.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
         - name: validOn
           in: query
+          example: '2026-10-12'
           description: Оставить определения, применимые к локальной дате.
           schema: { type: string, format: date }
         - $ref: '#/components/parameters/Page'
@@ -153,6 +216,7 @@ paths:
       tags: [shifts]
       operationId: createShift
       summary: Создать смену
+      description: Создаёт расписание смены с локальными границами и периодом действия для указанного предприятия.
       requestBody:
         required: true
         content:
@@ -177,6 +241,7 @@ paths:
       tags: [shifts]
       operationId: getShift
       summary: Получить смену
+      description: Возвращает расписание смены и признаки использования её исторически значимых границ.
       responses:
         '200':
           description: Смена
@@ -211,6 +276,7 @@ paths:
       tags: [shifts]
       operationId: updateShiftStatus
       summary: Изменить статус смены
+      description: Включает или отключает определение смены без удаления его истории.
       requestBody:
         required: true
         content:
@@ -232,10 +298,12 @@ paths:
       tags: [loss-reasons]
       operationId: listLossReasons
       summary: Список причин потерь предприятия
+      description: Возвращает справочник причин потерь с фильтрами статуса, категории и поиском.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
         - name: category
           in: query
+          example: EQUIPMENT
           schema: { $ref: '#/components/schemas/LossCategory' }
         - $ref: '#/components/parameters/Search'
         - $ref: '#/components/parameters/Page'
@@ -276,6 +344,7 @@ paths:
       tags: [loss-reasons]
       operationId: getLossReason
       summary: Получить причину потерь
+      description: Возвращает детали причины, категорию, цвет и признак использования.
       responses:
         '200':
           description: Причина потерь
@@ -310,6 +379,7 @@ paths:
       tags: [loss-reasons]
       operationId: updateLossReasonStatus
       summary: Изменить статус причины потерь
+      description: Включает или отключает причину потерь, сохраняя существующие ссылки и историю.
       requestBody:
         required: true
         content:
@@ -330,6 +400,7 @@ paths:
       tags: [lines]
       operationId: listLines
       summary: Список линий предприятия
+      description: Возвращает производственные линии предприятия в порядке sortOrder с пагинацией.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
         - $ref: '#/components/parameters/Search'
@@ -346,6 +417,7 @@ paths:
       tags: [lines]
       operationId: createLine
       summary: Создать линию
+      description: Создаёт линию в пределах предприятия; код уникален внутри предприятия.
       requestBody:
         required: true
         content:
@@ -370,6 +442,7 @@ paths:
       tags: [lines]
       operationId: getLine
       summary: Получить линию
+      description: Возвращает паспорт линии и её статус.
       responses:
         '200':
           description: Линия
@@ -381,6 +454,7 @@ paths:
       tags: [lines]
       operationId: updateLine
       summary: Изменить линию
+      description: Обновляет отображаемое имя и порядок линии, не перемещая машины автоматически.
       requestBody:
         required: true
         content:
@@ -423,12 +497,15 @@ paths:
       tags: [machines]
       operationId: listEnterpriseMachines
       summary: Список машин предприятия
+      description: Возвращает машины предприятия; lineId фильтрует назначенные линии, отсутствие фильтра включает весь парк.
       parameters:
         - name: lineId
           in: query
+          example: 20000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: assignment
           in: query
+          example: ASSIGNED
           schema:
             type: string
             enum: [ALL, ASSIGNED, UNASSIGNED]
@@ -474,6 +551,7 @@ paths:
       tags: [machines]
       operationId: listLineMachines
       summary: Список машин линии
+      description: Возвращает машины, назначенные конкретной линии, в стабильном порядке.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
         - $ref: '#/components/parameters/Search'
@@ -494,6 +572,7 @@ paths:
       tags: [machines]
       operationId: getMachine
       summary: Получить машину
+      description: Возвращает паспорт машины, параметры, статус и границу доступного telemetry coverage.
       responses:
         '200':
           description: Машина
@@ -505,6 +584,7 @@ paths:
       tags: [machines]
       operationId: updateMachine
       summary: Изменить паспортные и производственные поля машины
+      description: Обновляет паспорт и полный набор typed parameters машины; переданные параметры заменяют прежний набор.
       requestBody:
         required: true
         content:
@@ -550,6 +630,7 @@ paths:
       tags: [machines]
       operationId: getMachineActivationReadiness
       summary: Проверить готовность машины к активации
+      description: Проверяет обязательную конфигурацию и возвращает блокирующие ошибки и предупреждения без изменения статуса.
       responses:
         '200':
           description: Полный список ошибок и предупреждений
@@ -565,6 +646,7 @@ paths:
       tags: [machines]
       operationId: assignMachinesToLine
       summary: Атомарно назначить свободные машины линии
+      description: Атомарно назначает указанные машины линии после проверки владельца и отсутствия других назначений.
       requestBody:
         required: true
         content:
@@ -593,6 +675,7 @@ paths:
       tags: [components]
       operationId: listMachineComponents
       summary: Получить плоский список компонентов машины
+      description: Возвращает компоненты машины в порядке parent, sortOrder и code вместе с typed parameters.
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
       responses:
@@ -612,6 +695,7 @@ paths:
       tags: [components]
       operationId: createComponent
       summary: Создать компонент внутри машины
+      description: Создаёт компонент машины и при необходимости помещает его под существующего родителя.
       requestBody:
         required: true
         content:
@@ -636,6 +720,7 @@ paths:
       tags: [components]
       operationId: getComponent
       summary: Получить компонент
+      description: Возвращает компонент, его родителя, kind, параметры и статус.
       responses:
         '200':
           description: Компонент
@@ -647,6 +732,7 @@ paths:
       tags: [components]
       operationId: updateComponent
       summary: Изменить компонент без parent и status
+      description: Обновляет имя, вид, порядок и полный набор typed parameters компонента.
       requestBody:
         required: true
         content:
@@ -669,6 +755,7 @@ paths:
       tags: [components]
       operationId: updateComponentParent
       summary: Изменить родителя компонента внутри машины
+      description: Переносит компонент под указанного родителя или в корень дерева; циклическое родство отклоняется.
       requestBody:
         required: true
         content:
@@ -712,19 +799,24 @@ paths:
       tags: [telemetry-signals]
       operationId: listTelemetrySignals
       summary: Список сигналов машины
+      description: Возвращает конфигурацию сигналов машины с фильтрами статуса, kind и поиска.
       parameters:
         - name: componentId
           in: query
+          example: 21000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/StatusFilter'
         - name: semanticCode
           in: query
+          example: MOTOR_TEMPERATURE
           schema: { type: string }
         - name: signalKind
           in: query
+          example: GAUGE
           schema: { $ref: '#/components/schemas/SignalKind' }
         - name: featured
           in: query
+          example: true
           schema: { type: boolean }
         - $ref: '#/components/parameters/Search'
         - $ref: '#/components/parameters/Page'
@@ -740,6 +832,7 @@ paths:
       tags: [telemetry-signals]
       operationId: createTelemetrySignal
       summary: Создать сигнал машины
+      description: Регистрирует тип, семантику, единицы, интервалы измерений и featured-настройки нового сигнала.
       requestBody:
         required: true
         content:
@@ -764,6 +857,7 @@ paths:
       tags: [telemetry-signals]
       operationId: getTelemetrySignal
       summary: Получить сигнал
+      description: Возвращает конфигурацию сигнала и признак наличия raw measurements.
       responses:
         '200':
           description: Сигнал
@@ -820,6 +914,7 @@ paths:
       tags: [state-configuration]
       operationId: getMachineStateConfiguration
       summary: Получить текущую конфигурацию определения состояния
+      description: Возвращает default state, порог offline и декларативные правила машины.
       responses:
         '200':
           description: Текущая конфигурация
@@ -831,6 +926,7 @@ paths:
       tags: [state-configuration]
       operationId: replaceMachineStateConfiguration
       summary: Атомарно заменить текущую конфигурацию
+      description: Полностью заменяет правила определения состояния после проверки ссылок на сигналы.
       requestBody:
         required: true
         content:
@@ -853,6 +949,7 @@ paths:
       tags: [state-configuration]
       operationId: validateMachineStateConfiguration
       summary: Проверить конфигурацию без сохранения
+      description: Валидирует и нормализует документ правил, не меняя сохранённую конфигурацию машины.
       requestBody:
         required: true
         content:
@@ -893,12 +990,15 @@ paths:
       tags: [operations]
       operationId: getEnterpriseOperationsOverview
       summary: Получить текущий обзор машин предприятия
+      description: Возвращает агрегированные current cards и количества машин по состояниям предприятия.
       parameters:
         - name: lineId
           in: query
+          example: 20000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: includeDisabled
           in: query
+          example: false
           schema: { type: boolean, default: false }
       responses:
         '200':
@@ -932,10 +1032,12 @@ paths:
       tags: [telemetry]
       operationId: getMachineTelemetryCurrent
       summary: Получить текущие значения сигналов машины
+      description: Возвращает проекции выбранных или всех сигналов с quality и freshness каждого значения.
       parameters:
         - name: signalId
           in: query
           description: Повторяемый UUID сигнала; при отсутствии возвращаются все подходящие сигналы.
+          example: [30000000-0000-0000-0000-000000000001]
           schema:
             type: array
             maxItems: 100
@@ -944,9 +1046,12 @@ paths:
           explode: true
         - name: featuredOnly
           in: query
+          example: true
           schema: { type: boolean, default: false }
         - name: includeDisabled
           in: query
+          description: Включить в результат отключённые сигналы; по умолчанию возвращаются только ACTIVE.
+          example: false
           schema: { type: boolean, default: false }
       responses:
         '200':
@@ -990,6 +1095,7 @@ paths:
         - $ref: '#/components/parameters/ShiftDate'
         - name: compare
           in: query
+          example: PREVIOUS_PERIOD
           schema:
             type: string
             enum: [NONE, PREVIOUS_PERIOD]
@@ -1008,6 +1114,7 @@ paths:
       tags: [analytics]
       operationId: getMetricTimeseries
       summary: Получить временной ряд производственных показателей
+      description: Возвращает ограниченный по точкам ряд KPI для области, временного диапазона и разрешения.
       parameters:
         - $ref: '#/components/parameters/Scope'
         - $ref: '#/components/parameters/ScopeId'
@@ -1037,6 +1144,7 @@ paths:
         - name: signalId
           in: query
           required: true
+          example: 30000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
@@ -1056,6 +1164,7 @@ paths:
       tags: [losses]
       operationId: getLossTimeseries
       summary: Получить потери по времени и причинам
+      description: Возвращает длительность потерь по временным интервалам и причинам для заданной области.
       parameters:
         - $ref: '#/components/parameters/Scope'
         - $ref: '#/components/parameters/ScopeId'
@@ -1079,6 +1188,7 @@ paths:
       tags: [losses]
       operationId: getLossPareto
       summary: Получить Парето причин потерь
+      description: Ранжирует причины потерь по длительности и возвращает долю выбранного набора причин.
       parameters:
         - $ref: '#/components/parameters/Scope'
         - $ref: '#/components/parameters/ScopeId'
@@ -1108,6 +1218,7 @@ paths:
         - name: shiftDate
           in: query
           required: true
+          example: '2026-10-12'
           schema: { type: string, format: date }
         - $ref: '#/components/parameters/ShiftQueryId'
       responses:
@@ -1127,11 +1238,13 @@ paths:
       tags: [intervals]
       operationId: listMachineStateIntervals
       summary: Получить effective state intervals для таблицы
+      description: Возвращает cursor-page эффективных интервалов состояний с фильтром источника и периода.
       parameters:
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
         - name: state
           in: query
+          example: [RUN, DOWN]
           schema:
             type: array
             items: { $ref: '#/components/schemas/MachineState' }
@@ -1139,15 +1252,19 @@ paths:
           explode: true
         - name: lossReasonId
           in: query
+          example: 60000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: unclassifiedOnly
           in: query
+          example: false
           schema: { type: boolean, default: false }
         - name: lossOnly
           in: query
+          example: false
           schema: { type: boolean, default: false }
         - name: source
           in: query
+          example: CALCULATED
           schema: { $ref: '#/components/schemas/StateSource' }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1167,26 +1284,33 @@ paths:
       tags: [incidents]
       operationId: listEnterpriseIncidents
       summary: Получить общий журнал инцидентов предприятия
+      description: Возвращает инциденты машин предприятия с фильтрами периода и типа эффекта.
       parameters:
         - name: machineId
           in: query
+          example: 20000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: lineId
           in: query
+          example: 20000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
         - name: effectType
           in: query
+          example: STATE_OVERRIDE_WITH_REASON
           schema: { $ref: '#/components/schemas/IncidentEffectType' }
         - name: lossReasonId
           in: query
+          example: 60000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: ongoing
           in: query
+          example: true
           schema: { type: boolean }
         - name: includeCancelled
           in: query
+          example: false
           schema: { type: boolean, default: false }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1206,20 +1330,25 @@ paths:
       tags: [incidents]
       operationId: listMachineIncidents
       summary: Получить журнал ручных инцидентов машины
+      description: Возвращает историю ручных инцидентов указанной машины в cursor-порядке.
       parameters:
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
         - name: effectType
           in: query
+          example: LOSS_ANNOTATION
           schema: { $ref: '#/components/schemas/IncidentEffectType' }
         - name: lossReasonId
           in: query
+          example: 60000000-0000-0000-0000-000000000001
           schema: { type: string, format: uuid }
         - name: ongoing
           in: query
+          example: true
           schema: { type: boolean }
         - name: includeCancelled
           in: query
+          example: false
           schema: { type: boolean, default: false }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1262,6 +1391,7 @@ paths:
       tags: [incidents]
       operationId: getManualIncident
       summary: Получить ручной инцидент
+      description: Возвращает интервал инцидента, эффекты, автора и актуальность зависимого перерасчёта.
       responses:
         '200':
           description: Инцидент
@@ -1273,6 +1403,7 @@ paths:
       tags: [incidents]
       operationId: updateManualIncident
       summary: Изменить границы, эффекты или комментарий
+      description: Обновляет интервал и эффекты ручной аннотации с повторной проверкой пересечений и доступности данных.
       requestBody:
         required: true
         content:
@@ -1326,9 +1457,11 @@ paths:
       tags: [recalculations]
       operationId: listMachineStateRecalculations
       summary: Получить журнал пользовательских перерасчётов
+      description: Возвращает cursor-page фоновых jobs перерасчёта с фильтром статуса.
       parameters:
         - name: status
           in: query
+          example: RUNNING
           schema: { $ref: '#/components/schemas/RecalculationStatus' }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1371,6 +1504,7 @@ paths:
       tags: [recalculations]
       operationId: getStateRecalculation
       summary: Получить состояние перерасчёта
+      description: Возвращает статус job, диапазон, прогресс и последнюю ошибку фонового перерасчёта.
       responses:
         '200':
           description: Job
@@ -1408,50 +1542,60 @@ components:
       name: enterpriseId
       in: path
       required: true
+      example: 10000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     ShiftPathId:
       name: shiftId
       in: path
       required: true
+      example: 70000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     LossReasonId:
       name: lossReasonId
       in: path
       required: true
+      example: 60000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     LineId:
       name: lineId
       in: path
       required: true
+      example: 20000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     MachineId:
       name: machineId
       in: path
       required: true
+      example: 20000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     ComponentId:
       name: componentId
       in: path
       required: true
+      example: 21000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     SignalId:
       name: signalId
       in: path
       required: true
+      example: 30000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     IncidentId:
       name: incidentId
       in: path
       required: true
+      example: 80000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     RecalculationId:
       name: recalculationId
       in: path
       required: true
+      example: 90000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     StatusFilter:
       name: status
       in: query
+      example: ACTIVE
       description: Без параметра возвращаются только ACTIVE ресурсы; укажите DISABLED для списка отключённых ресурсов.
       schema:
         allOf:
@@ -1461,75 +1605,108 @@ components:
       name: Idempotency-Key
       in: header
       required: true
+      example: incident-create-20261012
       description: Один ключ используется при повторах одного create-запроса; scope — authenticated user и operation.
       schema: { type: string, minLength: 8, maxLength: 128 }
     Search:
       name: search
       in: query
+      example: MOTOR
       schema: { type: string, minLength: 1, maxLength: 100 }
     Page:
       name: page
       in: query
+      example: 0
       schema: { type: integer, minimum: 0, default: 0 }
     Size:
       name: size
       in: query
+      example: 50
       schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
     Cursor:
       name: cursor
       in: query
+      example: eyJvZmZzZXQiOjEwMH0
       description: Opaque cursor из предыдущего ответа.
       schema: { type: string, maxLength: 2048 }
     Limit:
       name: limit
       in: query
+      example: 100
       schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
     Scope:
       name: scope
       in: query
       required: true
+      example: MACHINE
       schema: { $ref: '#/components/schemas/AnalyticsScope' }
     ScopeId:
       name: scopeId
       in: query
       required: true
+      example: 20000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     From:
       name: from
       in: query
+      example: '2026-10-01T00:00:00Z'
       schema: { type: string, format: date-time }
     To:
       name: to
       in: query
+      example: '2026-10-02T00:00:00Z'
       schema: { type: string, format: date-time }
     FromRequired:
       name: from
       in: query
       required: true
+      example: '2026-10-01T00:00:00Z'
       schema: { type: string, format: date-time }
     ToRequired:
       name: to
       in: query
       required: true
+      example: '2026-10-02T00:00:00Z'
       schema: { type: string, format: date-time }
     ShiftQueryId:
       name: shiftId
       in: query
+      example: 70000000-0000-0000-0000-000000000001
       schema: { type: string, format: uuid }
     ShiftDate:
       name: shiftDate
       in: query
+      example: '2026-10-12'
       schema: { type: string, format: date }
     Resolution:
       name: resolution
       in: query
+      example: 15m
       schema: { $ref: '#/components/schemas/Resolution' }
     TopReasons:
       name: top
       in: query
+      example: 5
       schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
 
   responses:
+    AuthenticationFailed:
+      description: Неверные credentials либо недействительный или просроченный bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Пользователь не имеет права создавать учётные записи
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    TooManyRequests:
+      description: Превышен лимит запросов; повторите после Retry-After
+      headers:
+        Retry-After: { schema: { type: integer, minimum: 1 } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
     BadRequest:
       description: Некорректный JSON, query или сочетание параметров
       content:
@@ -1557,6 +1734,49 @@ components:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   schemas:
+    LoginRequest:
+      type: object
+      example: { username: operator, password: 'replace-with-user-password' }
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9._-]+$', description: Username нормализуется к нижнему регистру. }
+        password: { type: string, minLength: 12, maxLength: 72, writeOnly: true }
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken: { type: string, minLength: 1 }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, const: 1800 }
+        user:
+          type: object
+          additionalProperties: false
+          required: [id, username, displayName, canCreateUsers]
+          properties:
+            id: { type: string, format: uuid }
+            username: { type: string }
+            displayName: { type: string }
+            canCreateUsers: { type: boolean, description: Подсказка интерфейсу; POST /auth/users отдельно проверяет право на сервере. }
+    UserCreate:
+      type: object
+      example: { username: engineer, displayName: 'Инженер смены', initialPassword: 'replace-with-initial-password' }
+      additionalProperties: false
+      required: [username, displayName, initialPassword]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9._-]+$' }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        initialPassword: { type: string, minLength: 12, maxLength: 72, writeOnly: true, description: UTF-8 представление пароля ограничено 72 байтами для BCrypt. }
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, username, displayName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        createdAt: { type: string, format: date-time }
     ConfigStatus:
       type: string
       enum: [ACTIVE, DISABLED]
@@ -1646,6 +1866,7 @@ components:
 
     StatusUpdate:
       type: object
+      example: { status: DISABLED }
       additionalProperties: false
       required: [status]
       properties:
@@ -1653,6 +1874,7 @@ components:
 
     EnterpriseCreate:
       type: object
+      example: { code: FLEXO_01, name: 'Завод полимерной упаковки', timezone: Europe/Moscow }
       additionalProperties: false
       required: [code, name, timezone]
       properties:
@@ -1661,6 +1883,7 @@ components:
         timezone: { type: string, minLength: 1, maxLength: 100, example: Europe/Moscow }
     EnterpriseUpdate:
       type: object
+      example: { name: 'Завод полимерной упаковки', timezone: Europe/Moscow }
       additionalProperties: false
       required: [name, timezone]
       properties:
@@ -1687,6 +1910,7 @@ components:
 
     ShiftCreate:
       type: object
+      example: { code: DAY, name: 'Дневная смена', startLocalTime: '08:00', endLocalTime: '20:00', validFrom: '2026-01-01', validTo: null, sortOrder: 0 }
       additionalProperties: false
       required: [code, name, startLocalTime, endLocalTime, validFrom]
       properties:
@@ -1699,6 +1923,7 @@ components:
         sortOrder: { type: integer, minimum: 0, default: 0 }
     ShiftUpdate:
       type: object
+      example: { name: 'Дневная смена', startLocalTime: '08:00', endLocalTime: '20:00', validFrom: '2026-01-01', validTo: null, sortOrder: 0 }
       additionalProperties: false
       required: [name, startLocalTime, endLocalTime, validFrom, sortOrder]
       properties:
@@ -1736,6 +1961,7 @@ components:
 
     LossReasonCreate:
       type: object
+      example: { code: EQUIPMENT_FAILURE, name: 'Отказ оборудования', description: 'Незапланированная остановка машины', category: EQUIPMENT, color: '#B42318' }
       additionalProperties: false
       required: [code, name, category]
       properties:
@@ -1746,6 +1972,7 @@ components:
         color: { type: [string, "null"], pattern: '^#[0-9A-Fa-f]{6}$' }
     LossReasonUpdate:
       type: object
+      example: { name: 'Отказ оборудования', description: 'Незапланированная остановка машины', category: EQUIPMENT, color: '#B42318' }
       additionalProperties: false
       required: [name, category]
       properties:
@@ -1779,6 +2006,7 @@ components:
 
     ProductionLineCreate:
       type: object
+      example: { code: LINE_A, name: 'Линия фасовки A', sortOrder: 0 }
       additionalProperties: false
       required: [code, name]
       properties:
@@ -1787,6 +2015,7 @@ components:
         sortOrder: { type: [integer, "null"], minimum: 0 }
     ProductionLineUpdate:
       type: object
+      example: { name: 'Линия фасовки A', sortOrder: 0 }
       additionalProperties: false
       required: [name, sortOrder]
       properties:
@@ -1869,6 +2098,20 @@ components:
 
     MachineCreate:
       type: object
+      example:
+        code: MACHINE_01
+        name: Фасовочная машина 01
+        lineId: 20000000-0000-0000-0000-000000000001
+        machineType: Упаковочная
+        inventoryNo: INV-001
+        manufacturer: FKIT
+        model: P-100
+        commissioningYear: 2024
+        nominalRate: 120
+        productionUnit: пачка/мин
+        sortOrder: 0
+        parameters:
+          - { code: SPEED_CLASS, name: Класс скорости, valueType: STRING, value: HIGH, sortOrder: 0 }
       additionalProperties: false
       required: [code, name, parameters]
       properties:
@@ -1889,6 +2132,18 @@ components:
           items: { $ref: '#/components/schemas/TypedParameter' }
     MachineUpdate:
       type: object
+      example:
+        name: Фасовочная машина 01
+        machineType: Упаковочная
+        inventoryNo: INV-001
+        manufacturer: FKIT
+        model: P-100
+        commissioningYear: 2024
+        nominalRate: 120
+        productionUnit: пачка/мин
+        sortOrder: 0
+        parameters:
+          - { code: SPEED_CLASS, name: Класс скорости, valueType: STRING, value: HIGH, sortOrder: 0 }
       additionalProperties: false
       required: [name, parameters]
       properties:
@@ -1939,6 +2194,7 @@ components:
         page: { $ref: '#/components/schemas/PageMetadata' }
     MachineAssignmentsCreate:
       type: object
+      example: { machineIds: [20000000-0000-0000-0000-000000000001, 20000000-0000-0000-0000-000000000002] }
       additionalProperties: false
       required: [machineIds]
       properties:
@@ -1990,6 +2246,14 @@ components:
         - OTHER
     ComponentCreate:
       type: object
+      example:
+        parentComponentId: null
+        code: MAIN_DRIVE
+        name: Главный привод
+        kind: DRIVE
+        sortOrder: 0
+        parameters:
+          - { code: RATED_POWER, name: Номинальная мощность, valueType: NUMBER, value: 7.5, unitCode: kW, sortOrder: 0 }
       additionalProperties: false
       required: [code, name, kind, sortOrder, parameters]
       properties:
@@ -2004,6 +2268,12 @@ components:
           items: { $ref: '#/components/schemas/TypedParameter' }
     ComponentUpdate:
       type: object
+      example:
+        name: Главный привод
+        kind: DRIVE
+        sortOrder: 0
+        parameters:
+          - { code: RATED_POWER, name: Номинальная мощность, valueType: NUMBER, value: 7.5, unitCode: kW, sortOrder: 0 }
       additionalProperties: false
       required: [name, kind, sortOrder, parameters]
       properties:
@@ -2016,6 +2286,7 @@ components:
           items: { $ref: '#/components/schemas/TypedParameter' }
     ComponentParentUpdate:
       type: object
+      example: { parentComponentId: null }
       additionalProperties: false
       required: [parentComponentId]
       properties:
@@ -2040,6 +2311,22 @@ components:
 
     TelemetrySignalCreate:
       type: object
+      example:
+        componentId: null
+        code: MOTOR_TEMP
+        name: Температура двигателя
+        description: Температура корпуса электродвигателя
+        valueType: DOUBLE
+        signalKind: GAUGE
+        semanticCode: MOTOR_TEMPERATURE
+        customSemanticCode: null
+        unitCode: degC
+        expectedIntervalMs: 5000
+        staleAfterMs: 15000
+        validMin: -40
+        validMax: 180
+        featured: true
+        displayOrder: 0
       additionalProperties: false
       required: [code, name, valueType, signalKind, semanticCode, featured]
       properties:
@@ -2060,6 +2347,21 @@ components:
         displayOrder: { type: [integer, "null"], minimum: 0 }
     TelemetrySignalUpdate:
       type: object
+      example:
+        componentId: null
+        name: Температура двигателя
+        description: Температура корпуса электродвигателя
+        valueType: DOUBLE
+        signalKind: GAUGE
+        semanticCode: MOTOR_TEMPERATURE
+        customSemanticCode: null
+        unitCode: degC
+        expectedIntervalMs: 5000
+        staleAfterMs: 15000
+        validMin: -40
+        validMax: 180
+        featured: true
+        displayOrder: 0
       additionalProperties: false
       required: [name, valueType, signalKind, semanticCode, featured]
       properties:
@@ -2202,6 +2504,22 @@ components:
             id: { type: string, format: uuid }
     MachineStateConfigurationInput:
       type: object
+      example:
+        defaultState: IDLE
+        offlineAfterMs: 60000
+        rules:
+          - id: null
+            name: Аварийный перегрев
+            priority: 10
+            targetState: DOWN
+            enterCondition:
+              type: COMPARE
+              signalId: 30000000-0000-0000-0000-000000000001
+              operator: GTE
+              value: 90
+            exitCondition: null
+            activationDelayMs: 30000
+            releaseDelayMs: 60000
       additionalProperties: false
       required: [defaultState, offlineAfterMs, rules]
       properties:
@@ -2783,6 +3101,13 @@ components:
 
     ManualIncidentCreate:
       type: object
+      example:
+        from: '2026-10-12T08:15:00Z'
+        to: null
+        stateOverride: SETUP
+        lossReasonId: 60000000-0000-0000-0000-000000000001
+        comment: Плановая переналадка оборудования
+        author: Иван Петров
       additionalProperties: false
       required: [from]
       description: Если to равен null, инцидент продолжается до текущего dataThrough; для reason-only ongoing аннотации from должен быть строго раньше dataThrough машины.
@@ -2798,9 +3123,18 @@ components:
             - type: "null"
         lossReasonId: { type: [string, "null"], format: uuid }
         comment: { type: [string, "null"], maxLength: 500 }
-        author: { type: [string, "null"], maxLength: 100 }
+        author:
+          type: [string, "null"]
+          maxLength: 100
+          description: Подпись автора, переданная вызывающей стороной для отображения; это не подтверждённая личность и не identity claim.
     ManualIncidentUpdate:
       type: object
+      example:
+        from: '2026-10-12T08:15:00Z'
+        to: '2026-10-12T09:00:00Z'
+        stateOverride: SETUP
+        lossReasonId: 60000000-0000-0000-0000-000000000001
+        comment: Плановая переналадка завершена
       additionalProperties: false
       required: [from]
       anyOf:
@@ -2817,6 +3151,7 @@ components:
         comment: { type: [string, "null"], maxLength: 500 }
     ManualIncidentClose:
       type: object
+      example: { to: '2026-10-12T09:00:00Z' }
       additionalProperties: false
       required: [to]
       properties:
@@ -2869,6 +3204,7 @@ components:
       enum: [PERIOD, ALL]
     StateRecalculationCreate:
       type: object
+      example: { scope: PERIOD, from: '2026-10-01T00:00:00Z', to: '2026-10-02T00:00:00Z' }
       additionalProperties: false
       required: [scope]
       properties:

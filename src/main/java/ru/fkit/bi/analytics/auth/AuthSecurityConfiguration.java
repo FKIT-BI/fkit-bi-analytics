@@ -102,6 +102,7 @@ public class AuthSecurityConfiguration {
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(authorize -> authorize
             .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+            .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/openapi/analytics-api-draft.yaml").permitAll()
             .requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
             .anyRequest().authenticated())
         .oauth2ResourceServer(resourceServer -> resourceServer

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.hamcrest.Matchers.containsString;
 
 import jakarta.validation.Valid;
@@ -88,6 +89,30 @@ class AnalyticsApplicationTest {
     mockMvc.perform(get("/__test/success").header("X-Trace-Id", "client.trace-42"))
         .andExpect(status().isOk())
         .andExpect(header().string("X-Trace-Id", "client.trace-42"));
+  }
+
+  @Test
+  void swaggerUiAndCanonicalContractArePublicButBusinessApiStillRequiresJwt() throws Exception {
+    mockMvc.perform(get("/swagger-ui/index.html").header("X-Forwarded-Prefix", "/api/analytics").with(anonymous()))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/swagger-ui/swagger-ui-bundle.js").header("X-Forwarded-Prefix", "/api/analytics").with(anonymous()))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/v3/api-docs/swagger-config").header("X-Forwarded-Prefix", "/api/analytics").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.url").value("../openapi/analytics-api-draft.yaml"))
+        .andExpect(jsonPath("$.configUrl").value("../v3/api-docs/swagger-config"));
+    mockMvc.perform(get("/v3/api-docs").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.openapi").value("3.1.0"));
+    mockMvc.perform(get("/openapi/analytics-api-draft.yaml").header("X-Forwarded-Prefix", "/api/analytics").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("openapi: 3.1.0")))
+        .andExpect(content().string(containsString("url: ../api/v1")));
+    mockMvc.perform(get("/api/v1/enterprises").with(anonymous()))
+        .andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/v1/enterprises").with(anonymous())
+            .header("Authorization", "Bearer " + signedTestToken()))
+        .andExpect(status().isOk());
   }
 
   @Test
