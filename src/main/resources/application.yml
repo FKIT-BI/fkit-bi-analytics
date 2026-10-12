@@ -13,8 +13,6 @@ spring:
   mvc:
     problemdetails:
       enabled: false
-server:
-  forward-headers-strategy: framework
 springdoc:
   swagger-ui:
     url: ../openapi/analytics-api-draft.yaml
