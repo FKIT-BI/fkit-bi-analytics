@@ -73,16 +73,20 @@ public class BootstrapUserCommand implements ApplicationRunner {
       String displayName = suppliedDisplayName.trim();
       if (!USERNAME.matcher(username).matches()) throw new IllegalArgumentException("FKIT_BOOTSTRAP_USERNAME is invalid");
       if (displayName.isBlank() || displayName.length() > 100) throw new IllegalArgumentException("FKIT_BOOTSTRAP_DISPLAY_NAME is invalid");
-      if (password.length() < 12 || password.length() > 72
-          || password.getBytes(StandardCharsets.UTF_8).length > 72) {
-        throw new IllegalArgumentException("FKIT_BOOTSTRAP_PASSWORD must be 12 to 72 characters and at most 72 UTF-8 bytes");
-      }
+      validatePassword(password);
       jdbc.update("INSERT INTO identity.users (id, username, display_name, password_hash, is_bootstrap) VALUES (?, ?, ?, ?, TRUE)",
           UUID.randomUUID(), username.toLowerCase(Locale.ROOT), displayName, passwordEncoder.encode(password));
       created[0] = true;
       LOGGER.info("event=bootstrap_user created=true");
     });
     return created[0];
+  }
+
+  private static void validatePassword(String password) {
+    if (password.length() < 12 || password.length() > 72
+        || password.getBytes(StandardCharsets.UTF_8).length > 72) {
+      throw new IllegalArgumentException("FKIT_BOOTSTRAP_PASSWORD must be 12 to 72 characters and at most 72 UTF-8 bytes");
+    }
   }
 
   private String required(String name) {
