@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -33,6 +34,8 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,6 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(AuthFlowTest.TestEndpointConfiguration.class)
+@ExtendWith(OutputCaptureExtension.class)
 class AuthFlowTest {
   private static final String PASSWORD = "safe-passphrase-123";
   @Container static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -96,6 +100,69 @@ class AuthFlowTest {
         jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE is_bootstrap", String.class));
   }
 
+  @Test void operatorResetChangesOnlyExistingBootstrapPasswordAndNeverLogsIt(CapturedOutput output) {
+    UUID bootstrapId = addUser("demo.admin", "Демо-администратор", PASSWORD, true);
+    UUID ordinaryId = addUser("ordinary", "Обычный пользователь", "another-passphrase-123", false);
+    String newPassword = "reset-secret-never-log-456";
+    String before = jdbc.queryForObject(
+        "SELECT username || '|' || display_name || '|' || is_bootstrap || '|' || password_hash"
+            + " FROM identity.users WHERE id = ?", String.class, bootstrapId);
+    String ordinaryBefore = jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class,
+        ordinaryId);
+
+    BootstrapUserCommand command = new BootstrapUserCommand(jdbc, passwords,
+        new TransactionTemplate(transactionManager));
+    org.junit.jupiter.api.Assertions.assertTrue(command.resetExistingBootstrap("DEMO.ADMIN", newPassword));
+
+    String after = jdbc.queryForObject(
+        "SELECT username || '|' || display_name || '|' || is_bootstrap || '|' || password_hash"
+            + " FROM identity.users WHERE id = ?", String.class, bootstrapId);
+    String[] beforeFields = before.split("\\|", 4);
+    String[] afterFields = after.split("\\|", 4);
+    org.junit.jupiter.api.Assertions.assertArrayEquals(java.util.Arrays.copyOf(beforeFields, 3),
+        java.util.Arrays.copyOf(afterFields, 3));
+    org.junit.jupiter.api.Assertions.assertNotEquals(beforeFields[3], afterFields[3]);
+    org.junit.jupiter.api.Assertions.assertTrue(passwords.matches(newPassword, afterFields[3]));
+    org.junit.jupiter.api.Assertions.assertFalse(passwords.matches(PASSWORD, afterFields[3]));
+    org.junit.jupiter.api.Assertions.assertEquals(ordinaryBefore,
+        jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class, ordinaryId));
+    org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains(newPassword));
+  }
+
+  @Test void operatorResetRejectsPasswordsOutsideLengthLimitsWithoutChangingHash() {
+    UUID bootstrapId = addUser("demo.admin", "Демо-администратор", PASSWORD, true);
+    String originalHash = jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class,
+        bootstrapId);
+    BootstrapUserCommand command = new BootstrapUserCommand(jdbc, passwords,
+        new TransactionTemplate(transactionManager));
+
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+        () -> command.resetExistingBootstrap("demo.admin", "short"));
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+        () -> command.resetExistingBootstrap("demo.admin", "é".repeat(37)));
+
+    org.junit.jupiter.api.Assertions.assertEquals(originalHash,
+        jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class, bootstrapId));
+  }
+
+  @Test void operatorResetRefusesMissingOrOrdinaryAccountsWithoutInsertingOrChangingRows() {
+    UUID ordinaryId = addUser("ordinary", "Ordinary", PASSWORD, false);
+    String ordinaryHash = jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class,
+        ordinaryId);
+    BootstrapUserCommand command = new BootstrapUserCommand(jdbc, passwords,
+        new TransactionTemplate(transactionManager));
+
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+        () -> command.resetExistingBootstrap("missing.user", "replacement-passphrase-123"));
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+        () -> command.resetExistingBootstrap("ordinary", "replacement-passphrase-123"));
+
+    org.junit.jupiter.api.Assertions.assertEquals(1,
+        jdbc.queryForObject("SELECT count(*) FROM identity.users", Integer.class));
+    org.junit.jupiter.api.Assertions.assertEquals(ordinaryHash,
+        jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id = ?", String.class, ordinaryId));
+  }
+
   @Test void bootstrapCliDispatchesAndExitsIdempotently() {
     String[] args = {
         "bootstrap-user",
@@ -114,6 +181,45 @@ class AuthFlowTest {
         jdbc.queryForObject("SELECT count(*) FROM identity.users", Integer.class));
     org.junit.jupiter.api.Assertions.assertEquals(originalHash,
         jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE is_bootstrap", String.class));
+
+    String resetPassword = "cli-reset-password-456";
+    String[] resetArgs = java.util.Arrays.stream(args)
+        .map(argument -> argument.startsWith("--fkit.bootstrap.password=")
+            ? "--fkit.bootstrap.password=" + resetPassword : argument)
+        .toArray(String[]::new);
+    resetArgs[0] = "reset-bootstrap-password";
+    resetArgs = java.util.Arrays.stream(resetArgs)
+        .filter(argument -> !argument.startsWith("--fkit.bootstrap.display-name="))
+        .toArray(String[]::new);
+    resetArgs = java.util.Arrays.copyOf(resetArgs, resetArgs.length + 2);
+    resetArgs[resetArgs.length - 2] = "--fkit.bootstrap.reset-only=false";
+    resetArgs[resetArgs.length - 1] = "--fkit.bootstrap.command-enabled=false";
+    AnalyticsApplication.main(resetArgs);
+    String resetHash = jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE is_bootstrap", String.class);
+    org.junit.jupiter.api.Assertions.assertNotEquals(originalHash, resetHash);
+    org.junit.jupiter.api.Assertions.assertTrue(passwords.matches(resetPassword, resetHash));
+    org.junit.jupiter.api.Assertions.assertEquals(1,
+        jdbc.queryForObject("SELECT count(*) FROM identity.users", Integer.class));
+  }
+
+  @Test void resetCliCannotBeOverriddenIntoBootstrapOnAnEmptyStore() {
+    String[] args = {
+        "reset-bootstrap-password",
+        "--spring.datasource.url=" + postgres.getJdbcUrl(),
+        "--spring.datasource.username=" + postgres.getUsername(),
+        "--spring.datasource.password=" + postgres.getPassword(),
+        "--fkit.auth.jwt-secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "--fkit.bootstrap.username=missing.bootstrap",
+        "--fkit.bootstrap.display-name=Must not be inserted",
+        "--fkit.bootstrap.password=" + PASSWORD,
+        "--fkit.bootstrap.reset-only=false",
+        "--fkit.bootstrap.command-enabled=false",
+        "--spring.main.banner-mode=off"};
+
+    org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+        () -> AnalyticsApplication.main(args));
+    org.junit.jupiter.api.Assertions.assertEquals(0,
+        jdbc.queryForObject("SELECT count(*) FROM identity.users", Integer.class));
   }
 
   @Test void loginReturnsJwtAndCredentialFailuresAreIndistinguishable() throws Exception {

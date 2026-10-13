@@ -26,27 +26,39 @@ public class BootstrapUserCommand implements ApplicationRunner {
   private final PasswordEncoder passwordEncoder;
   private final TransactionTemplate transactions;
   private final Function<String, String> environment;
+  private final boolean resetOnly;
 
   @Autowired
   public BootstrapUserCommand(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, TransactionTemplate transactions,
       Environment environment) {
     this(jdbc, passwordEncoder, transactions, name -> environment.getProperty("fkit.bootstrap." + name
-        .substring("FKIT_BOOTSTRAP_".length()).toLowerCase(Locale.ROOT).replace('_', '-')));
+        .substring("FKIT_BOOTSTRAP_".length()).toLowerCase(Locale.ROOT).replace('_', '-')),
+        environment.getProperty("fkit.bootstrap.reset-only", Boolean.class, false));
   }
 
   BootstrapUserCommand(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, TransactionTemplate transactions) {
-    this(jdbc, passwordEncoder, transactions, System::getenv);
+    this(jdbc, passwordEncoder, transactions, System::getenv, false);
   }
 
   BootstrapUserCommand(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, TransactionTemplate transactions,
       Function<String, String> environment) {
+    this(jdbc, passwordEncoder, transactions, environment, false);
+  }
+
+  BootstrapUserCommand(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, TransactionTemplate transactions,
+      Function<String, String> environment, boolean resetOnly) {
     this.jdbc = jdbc;
     this.passwordEncoder = passwordEncoder;
     this.transactions = transactions;
     this.environment = environment;
+    this.resetOnly = resetOnly;
   }
 
   @Override public void run(ApplicationArguments args) {
+    if (resetOnly) {
+      resetExistingBootstrap(required("FKIT_BOOTSTRAP_USERNAME"), required("FKIT_BOOTSTRAP_PASSWORD"));
+      return;
+    }
     Integer count = jdbc.queryForObject("SELECT count(*) FROM identity.users", Integer.class);
     if (count != null && count > 0) {
       LOGGER.info("event=bootstrap_user already_initialized=true");
@@ -80,6 +92,31 @@ public class BootstrapUserCommand implements ApplicationRunner {
       LOGGER.info("event=bootstrap_user created=true");
     });
     return created[0];
+  }
+
+  boolean resetExistingBootstrap(String suppliedUsername, String newPassword) {
+    if (suppliedUsername == null || !USERNAME.matcher(suppliedUsername).matches()) {
+      throw new IllegalArgumentException("FKIT_BOOTSTRAP_USERNAME is invalid");
+    }
+    validatePassword(newPassword);
+    String username = suppliedUsername.toLowerCase(Locale.ROOT);
+    int[] updated = {0};
+    transactions.executeWithoutResult(status -> {
+      jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> {
+        try (java.sql.Statement statement = connection.createStatement()) {
+          statement.execute("SELECT pg_advisory_xact_lock(1329748801)");
+        }
+        return null;
+      });
+      updated[0] = jdbc.update(
+          "UPDATE identity.users SET password_hash = ? WHERE username = ? AND is_bootstrap = TRUE",
+          passwordEncoder.encode(newPassword), username);
+      if (updated[0] != 1) {
+        throw new IllegalStateException("Existing bootstrap account was not found; no account was changed");
+      }
+    });
+    LOGGER.info("event=bootstrap_user reset=true");
+    return updated[0] == 1;
   }
 
   private static void validatePassword(String password) {
