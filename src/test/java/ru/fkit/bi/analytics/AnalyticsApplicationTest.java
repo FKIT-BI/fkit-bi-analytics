@@ -49,10 +49,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -83,6 +90,7 @@ class AnalyticsApplicationTest {
   @Autowired MockMvc mockMvc;
   @Autowired ApplicationContext applicationContext;
   @Autowired JdbcTemplate jdbcTemplate;
+  @Autowired ObjectMapper objectMapper;
 
   @Test
   void successPreservesValidTraceIdAndReturnsItInHeader() throws Exception {
@@ -113,6 +121,20 @@ class AnalyticsApplicationTest {
     mockMvc.perform(get("/api/v1/enterprises").with(anonymous())
             .header("Authorization", "Bearer " + signedTestToken()))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  void publishedOpenApiAndRuntimeMappingsHaveTheSameHttpOperations() throws Exception {
+    Set<String> contractOperations=new HashSet<>();String path=null;
+    Pattern pathPattern=Pattern.compile("^  (/[^:]+):\\s*$");Pattern methodPattern=Pattern.compile("^    (get|post|put|patch|delete):\\s*$");
+    for(String line:Files.readAllLines(Path.of("docs/contracts/analytics-api-draft.yaml"))){Matcher pathMatcher=pathPattern.matcher(line);if(pathMatcher.matches()){path=pathMatcher.group(1);continue;}Matcher methodMatcher=methodPattern.matcher(line);if(path!=null&&methodMatcher.matches())contractOperations.add(methodMatcher.group(1).toUpperCase()+" /api/v1"+path);}
+
+    String runtimeBody=mockMvc.perform(get("/v3/api-docs").with(anonymous())).andExpect(status().isOk())
+        .andReturn().getResponse().getContentAsString();
+    JsonNode paths=objectMapper.readTree(runtimeBody).path("paths");Set<String> runtimeOperations=new HashSet<>();
+    for(var entry:paths.properties())if(entry.getKey().startsWith("/api/v1/"))for(var method:entry.getValue().properties())if(Set.of("get","post","put","patch","delete").contains(method.getKey()))runtimeOperations.add(method.getKey().toUpperCase()+" "+entry.getKey());
+
+    assertEquals(contractOperations,runtimeOperations,"published static OpenAPI and Spring runtime mappings must match in both directions");
   }
 
   @Test

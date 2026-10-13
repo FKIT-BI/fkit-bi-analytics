@@ -23,6 +23,13 @@ public final class MachineModels {
       String inventoryNo, String manufacturer, String model, Integer commissioningYear, Double nominalRate,
       String productionUnit, Integer sortOrder, String status, Instant coverageFrom, List<JsonNode> parameters,
       Instant createdAt, Instant updatedAt) {}
+  public record EquipmentTreeEnterprise(UUID id, String code, String name, String timezone, String status) {}
+  public record EquipmentTreeMachine(UUID id, String code, String name, String inventoryNo, String machineType,
+      Integer sortOrder, String status) {}
+  public record EquipmentTreeLine(UUID id, String code, String name, int sortOrder, String status,
+      List<EquipmentTreeMachine> machines) {}
+  public record EquipmentTree(EquipmentTreeEnterprise enterprise, List<EquipmentTreeLine> lines,
+      List<EquipmentTreeMachine> unassignedMachines, Instant generatedAt) {}
   public record Metadata(int number,int size,long totalElements,int totalPages) {}
   public record Page<T>(List<T> items, Metadata page) {}
 }

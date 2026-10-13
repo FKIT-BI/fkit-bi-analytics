@@ -81,6 +81,37 @@ class EquipmentConfigurationApiTest {
     mvc.perform(get("/api/v1/machines/"+machine)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DISABLED"));
   }
 
+  @Test @WithMockUser void equipmentTreeGroupsAssignedAndUnassignedMachinesAndAppliesFilters() throws Exception {
+    String enterprise=createEnterprise("PLANT_A");
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.enterprise.id").value(enterprise))
+        .andExpect(jsonPath("$.lines.length()").value(0)).andExpect(jsonPath("$.unassignedMachines.length()").value(0));
+    String line=createLine(enterprise,"LINE_A");
+    String assigned=createMachine(enterprise,line,"M_ASSIGNED");String free=createMachine(enterprise,null,"M_FREE");
+
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree").param("status","DISABLED"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.enterprise.id").value(enterprise))
+        .andExpect(jsonPath("$.enterprise.code").value("PLANT_A"))
+        .andExpect(jsonPath("$.lines[0].id").value(line))
+        .andExpect(jsonPath("$.lines[0].machines[0].id").value(assigned))
+        .andExpect(jsonPath("$.unassignedMachines[0].id").value(free))
+        .andExpect(jsonPath("$.generatedAt").isString());
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree").param("status","DISABLED").param("search","ASSIGNED"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.lines.length()").value(1))
+        .andExpect(jsonPath("$.lines[0].machines.length()").value(1))
+        .andExpect(jsonPath("$.lines[0].machines[0].id").value(assigned))
+        .andExpect(jsonPath("$.unassignedMachines.length()").value(0));
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree").param("status","DISABLED").param("search","FREE"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.lines.length()").value(0))
+        .andExpect(jsonPath("$.unassignedMachines[0].id").value(free));
+    mvc.perform(get("/api/v1/enterprises/"+UUID.randomUUID()+"/equipment-tree"))
+        .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree").param("status","UNKNOWN"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_STATUS_FILTER"));
+    mvc.perform(get("/api/v1/enterprises/"+enterprise+"/equipment-tree").param("search","X".repeat(101)))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+  }
+
   @Test @WithMockUser void machineHasAtMostOneActiveProductionCounterPerMetricSemantic() throws Exception {
     String enterprise=createEnterprise("PLANT_A");String machine=createMachine(enterprise,null,"M_A");
     String first=createProductionSignal(machine,"OUTPUT_A");
