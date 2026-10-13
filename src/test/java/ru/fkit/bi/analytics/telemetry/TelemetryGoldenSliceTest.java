@@ -140,6 +140,22 @@ class TelemetryGoldenSliceTest {
     mvc.perform(get("/api/v1/analytics/metrics/timeseries").param("scope","MACHINE").param("scopeId",machine.toString())
         .param("from",historyBucket.toString()).param("to",historyBucket.plusSeconds(300).toString()).param("resolution","5m"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.points[0].metrics.availability").value(1));
+    Instant requestedFuture=Instant.now().plusSeconds(3600);
+    mvc.perform(get("/api/v1/analytics/metrics/timeseries").param("scope","MACHINE").param("scopeId",machine.toString())
+        .param("from",historyBucket.toString()).param("to",requestedFuture.toString()).param("resolution","5m"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.metadata.requestedTo").value(requestedFuture.toString()))
+        .andExpect(jsonPath("$.metadata.partial").value(true));
+    mvc.perform(get("/api/v1/analytics/summary").param("scope","MACHINE").param("scopeId",machine.toString())
+        .param("from",historyBucket.toString()).param("to",requestedFuture.toString()).param("compare","PREVIOUS_PERIOD"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.current.metadata.requestedTo").value(requestedFuture.toString()))
+        .andExpect(jsonPath("$.current.metadata.partial").value(true)).andExpect(jsonPath("$.previous").exists());
+    mvc.perform(get("/api/v1/analytics/losses/pareto").param("scope","MACHINE").param("scopeId",machine.toString())
+        .param("from",historyBucket.toString()).param("to",requestedFuture.toString()))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.metadata.partial").value(true));
+    mvc.perform(get("/api/v1/analytics/summary").param("scope","MACHINE").param("scopeId",machine.toString())
+        .param("from",requestedFuture.toString()).param("to",requestedFuture.plusSeconds(60).toString()))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.fieldErrors[0].path").value("from"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("INVALID_RANGE"));
     var intervalsResponse=mvc.perform(get("/api/v1/machines/"+machine+"/state-intervals").param("from",historicalObserved.toString())
         .param("to",historyBucket.plusSeconds(60).toString())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     assertEquals("RUN",json.readTree(intervalsResponse).path("items").get(0).path("effectiveState").asText(),

@@ -124,6 +124,22 @@ class EquipmentConfigurationApiTest {
         .content(productionSignal("OUTPUT_B"))).andExpect(status().isCreated());
   }
 
+  @Test @WithMockUser void activeUnitsAreListedAndUnknownOrIncompleteUnitsHaveFieldErrors() throws Exception {
+    mvc.perform(get("/api/v1/reference/measurement-units"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$[0].code").isString())
+        .andExpect(jsonPath("$[0].name").isString()).andExpect(jsonPath("$[0].quantityCode").isString());
+    String enterprise=createEnterprise("PLANT_A");
+    mvc.perform(post("/api/v1/enterprises/"+enterprise+"/machines").contentType(MediaType.APPLICATION_JSON)
+        .content("{\"code\":\"M_RATE\",\"name\":\"Machine\",\"nominalRate\":100,\"parameters\":[]}"))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.fieldErrors[0].path").value("productionUnit"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("REQUIRED_WITH"));
+    String machine=createMachine(enterprise,null,"M_A");
+    mvc.perform(post("/api/v1/machines/"+machine+"/telemetry-signals").contentType(MediaType.APPLICATION_JSON)
+        .content("{\"code\":\"TEMP\",\"name\":\"Temperature\",\"valueType\":\"DOUBLE\",\"signalKind\":\"GAUGE\",\"semanticCode\":\"TEMPERATURE\",\"unitCode\":\"UNKNOWN\",\"featured\":true}"))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.fieldErrors[0].path").value("unitCode"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("UNKNOWN_UNIT"));
+  }
+
   @Test @WithMockUser void completeConfigurationJourneyPreservesOwnershipAndNonCascadingStatuses() throws Exception {
     String enterprise=createEnterprise("PLANT_A");
     createShift(enterprise,"DAY","08:00","16:00");

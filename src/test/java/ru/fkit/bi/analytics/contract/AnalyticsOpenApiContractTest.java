@@ -19,6 +19,7 @@ class AnalyticsOpenApiContractTest {
       "listEnterprises", "createEnterprise", "getEnterprise", "updateEnterprise", "updateEnterpriseStatus",
       "listShifts", "createShift", "getShift", "updateShift", "updateShiftStatus",
       "listLossReasons", "createLossReason", "getLossReason", "updateLossReason", "updateLossReasonStatus",
+      "listMeasurementUnits",
       "listLines", "createLine", "getLine", "updateLine", "updateLineStatus",
       "listEnterpriseMachines", "createMachine", "listLineMachines", "getMachine", "updateMachine",
       "updateMachineStatus", "getMachineActivationReadiness", "assignMachinesToLine",
@@ -45,6 +46,18 @@ class AnalyticsOpenApiContractTest {
     assertTrue(yaml.contains("bearerAuth:\n      type: http\n      scheme: bearer\n      bearerFormat: JWT"));
     assertDocumentedOperationsAndBodies(yaml);
     assertParameterExamples(yaml);
+  }
+
+  @Test
+  void contractDocumentsStableHarBehaviour() throws Exception {
+    String yaml = Files.readString(Path.of("docs/contracts/analytics-api-draft.yaml"));
+    assertTrue(yaml.contains("    Limit:\n      name: limit\n      in: query\n      example: 100\n      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }"),
+        "cursor limit must default to 100 and allow 500");
+    assertTrue(yaml.contains("  /reference/measurement-units:"), "unit selectors need the active unit catalog");
+    assertTrue(yaml.matches("(?s).*\\n    MeasurementUnit:\\n.*required: \\[code, name\\].*"), "MeasurementUnit schema is required");
+    assertTrue(yaml.contains("productionUnit: [nominalRate]"), "nominalRate/productionUnit dependency must be explicit");
+    assertTrue(yaml.contains("fieldErrors:\n          - { path: productionUnit, code: UNKNOWN_UNIT"), "ErrorResponse needs a field-level example");
+    assertTrue(yaml.contains("будущая граница даёт partial=true"), "live periods must be documented as partial, not 422");
   }
 
   @Test

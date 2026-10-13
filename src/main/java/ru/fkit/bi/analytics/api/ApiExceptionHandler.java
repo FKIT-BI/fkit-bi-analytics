@@ -24,18 +24,18 @@ public class ApiExceptionHandler {
   private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
   @ExceptionHandler(HttpMessageNotReadableException.class)
   ResponseEntity<ErrorResponse> malformedJson(HttpServletRequest request) {
-    return error(request, HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "Request body is invalid", List.of());
+    return error(request, HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "Тело запроса содержит ошибку", List.of());
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   ResponseEntity<ErrorResponse> validation(MethodArgumentNotValidException exception, HttpServletRequest request) {
     List<ErrorResponse.FieldError> fields = exception.getBindingResult().getFieldErrors().stream()
-        .map(error -> new ErrorResponse.FieldError(error.getField(), "INVALID", "Value is invalid"))
+        .map(error -> constraintError(error.getField(), error.getCode()))
         .toList();
     if ("/api/v1/auth/login".equals(request.getRequestURI())) {
-      return error(request, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Request body is invalid", fields);
+      return error(request, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Проверьте поля запроса", fields);
     }
-    return error(request, HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "Request validation failed", fields);
+    return error(request, HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "Проверьте поля запроса", fields);
   }
 
   @ExceptionHandler(AuthError.class)
@@ -62,11 +62,38 @@ public class ApiExceptionHandler {
   ResponseEntity<ru.fkit.bi.analytics.api.ErrorResponse> methodValidation(
       HandlerMethodValidationException exception, HttpServletRequest request) {
     List<ru.fkit.bi.analytics.api.ErrorResponse.FieldError> fields = exception.getParameterValidationResults().stream()
-        .flatMap(result -> result.getResolvableErrors().stream().map(ignored ->
-            new ru.fkit.bi.analytics.api.ErrorResponse.FieldError(parameterPath(result.getMethodParameter()), "INVALID", "Value is invalid")))
+        .flatMap(result -> result.getResolvableErrors().stream().map(error ->
+            constraintError(parameterPath(result.getMethodParameter()), error.getCodes() == null || error.getCodes().length == 0 ? null : error.getCodes()[error.getCodes().length - 1])))
         .distinct()
         .toList();
-    return error(request, HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "Request validation failed", fields);
+    return error(request, HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "Проверьте параметры запроса", fields);
+  }
+
+  @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+  ResponseEntity<ErrorResponse> typeMismatch(
+      org.springframework.web.method.annotation.MethodArgumentTypeMismatchException exception, HttpServletRequest request) {
+    return error(request, HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Проверьте параметры запроса",
+        List.of(new ErrorResponse.FieldError(parameterPath(exception.getParameter()), "INVALID_FORMAT", "Значение имеет неверный формат")));
+  }
+
+  @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+  ResponseEntity<ErrorResponse> missingParameter(
+      org.springframework.web.bind.MissingServletRequestParameterException exception, HttpServletRequest request) {
+    return error(request, HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Проверьте параметры запроса",
+        List.of(new ErrorResponse.FieldError(exception.getParameterName(), "REQUIRED", "Обязательный параметр")));
+  }
+
+  /** Maps Bean Validation constraint names to stable field codes and safe Russian text. */
+  static ErrorResponse.FieldError constraintError(String path, String constraint) {
+    String name = constraint == null ? "" : constraint;
+    return switch (name) {
+      case "NotNull", "NotBlank", "NotEmpty" -> new ErrorResponse.FieldError(path, "REQUIRED", "Обязательное поле");
+      case "Size" -> new ErrorResponse.FieldError(path, "INVALID_LENGTH", "Недопустимая длина значения");
+      case "Pattern", "Email" -> new ErrorResponse.FieldError(path, "INVALID_FORMAT", "Значение имеет неверный формат");
+      case "Min", "Max", "DecimalMin", "DecimalMax", "Positive", "PositiveOrZero", "Negative", "NegativeOrZero" ->
+          new ErrorResponse.FieldError(path, "OUT_OF_RANGE", "Значение вне допустимого диапазона");
+      default -> new ErrorResponse.FieldError(path, "INVALID", "Недопустимое значение");
+    };
   }
 
   private ResponseEntity<ru.fkit.bi.analytics.api.ErrorResponse> frameworkError(
@@ -79,7 +106,15 @@ public class ApiExceptionHandler {
       case CONFLICT -> "CONFLICT";
       default -> "HTTP_" + status.value() + "_" + status.name();
     };
-    return error(request, status, code, status.getReasonPhrase(), List.of());
+    String message = switch (status) {
+      case BAD_REQUEST -> "Некорректный запрос";
+      case NOT_FOUND -> "Ресурс не найден";
+      case METHOD_NOT_ALLOWED -> "Метод не поддерживается";
+      case CONFLICT -> "Конфликт состояния ресурса";
+      case UNSUPPORTED_MEDIA_TYPE -> "Неподдерживаемый формат запроса";
+      default -> "Запрос не может быть обработан";
+    };
+    return error(request, status, code, message, List.of());
   }
 
   private String parameterPath(MethodParameter parameter) {
@@ -106,8 +141,8 @@ public class ApiExceptionHandler {
       return frameworkError(frameworkError, request);
     }
     ResponseEntity<ErrorResponse> response = error(
-        request, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred", List.of());
-    LOGGER.error("event=api_error code={} traceId={}", response.getBody().code(), response.getBody().traceId());
+        request, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Внутренняя ошибка сервера", List.of());
+    LOGGER.error("event=api_error code={} traceId={}", response.getBody().code(), response.getBody().traceId(), exception);
     return response;
   }
 

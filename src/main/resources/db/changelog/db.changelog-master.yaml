@@ -38,3 +38,6 @@ databaseChangeLog:
   - include:
       file: releases/013-generator-run-control/changelog.yaml
       relativeToChangelogFile: true
+  - include:
+      file: releases/014-stable-analytics-api/changelog.yaml
+      relativeToChangelogFile: true

@@ -134,7 +134,21 @@ class ManualLossAttributionApiTest {
     String secondId=second.path("items").get(0).path("id").asText();
     org.junit.jupiter.api.Assertions.assertNotEquals(firstId,secondId,"cursor pages must not repeat an incident");
     mvc.perform(get("/api/v1/machines/"+s.machine()+"/incidents").param("cursor","not-a-cursor"))
-        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.fieldErrors[0].path").value("cursor"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("INVALID_CURSOR"));
+  }
+
+  @Test @WithMockUser void emptyLossReasonFiltersAndIncidentLimitContractAreStable() throws Exception {
+    Scenario s=setupEnterpriseAndMachine();createReason(s.enterprise(),"NO_FILTERS","Без фильтров","OTHER");
+    mvc.perform(get("/api/v1/enterprises/"+s.enterprise()+"/loss-reasons"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1));
+    mvc.perform(get("/api/v1/machines/"+s.machine()+"/incidents"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.cursor.limit").value(100));
+    mvc.perform(get("/api/v1/machines/"+s.machine()+"/incidents").param("limit","500"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.cursor.limit").value(500));
+    mvc.perform(get("/api/v1/machines/"+s.machine()+"/incidents").param("limit","501"))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.fieldErrors[0].path").value("limit"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("OUT_OF_RANGE"));
   }
 
   private UUID createReason(UUID enterprise,String code,String name,String category)throws Exception{String r=mvc.perform(post("/api/v1/enterprises/"+enterprise+"/loss-reasons").contentType(MediaType.APPLICATION_JSON)

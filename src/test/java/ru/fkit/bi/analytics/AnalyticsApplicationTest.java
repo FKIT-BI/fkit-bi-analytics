@@ -211,7 +211,8 @@ class AnalyticsApplicationTest {
         .andExpect(status().isUnprocessableEntity())
         .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
         .andExpect(jsonPath("$.fieldErrors[0].path").value("value"))
-        .andExpect(jsonPath("$.fieldErrors[0].message").value("Value is invalid"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("REQUIRED"))
+        .andExpect(jsonPath("$.fieldErrors[0].message").value("Обязательное поле"))
         .andReturn();
     String generatedTraceId = result.getResponse().getHeader("X-Trace-Id");
     assertNotNull(generatedTraceId);
@@ -249,7 +250,8 @@ class AnalyticsApplicationTest {
         .andExpect(status().isUnprocessableEntity())
         .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
         .andExpect(jsonPath("$.fieldErrors[0].path").value("count"))
-        .andExpect(jsonPath("$.fieldErrors[0].message").value("Value is invalid"));
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("OUT_OF_RANGE"))
+        .andExpect(jsonPath("$.fieldErrors[0].message").value("Значение вне допустимого диапазона"));
   }
 
   @Test
@@ -259,7 +261,7 @@ class AnalyticsApplicationTest {
         .andExpect(header().string("X-Trace-Id", "failure-9"))
         .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
         .andExpect(jsonPath("$.traceId").value("failure-9"))
-        .andExpect(jsonPath("$.message").value("An unexpected error occurred"))
+        .andExpect(jsonPath("$.message").value("Внутренняя ошибка сервера"))
         .andExpect(jsonPath("$.stackTrace").doesNotExist())
         .andExpect(jsonPath("$.details.password").doesNotExist());
   }
