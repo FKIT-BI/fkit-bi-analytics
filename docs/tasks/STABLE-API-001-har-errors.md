@@ -29,3 +29,12 @@
 ## Остаток
 
 - Причина 500 у loss-reasons подтверждена кодом и тестом на PostgreSQL 16, но не логами DEV по traceId из HAR. После деплоя нужно повторить сценарии HAR.
+
+## Итерация 2 — retest HAR (2026-10-13, 23:16–23:18 МСК)
+
+Retest: 605/608 API-запросов 200, исправления первой итерации на DEV работают. Отказы — три `POST /machines/{id}/incidents` → 422 `INVALID_INCIDENT_RANGE` без полей и с английским текстом. Две попытки отправили `from` = `coverageFrom` (23:09:05.335) без миллисекунд — дефект Web; третья целиком раньше покрытия — корректный отказ.
+
+- Правила времени инцидента сохранены (`coverageFrom <= from <= now`, закрытый: `from < to <= now`), код `INVALID_INCIDENT_RANGE` прежний. Ошибка теперь называет поле и причину: `from`/`NO_COVERAGE|BEFORE_COVERAGE|IN_FUTURE`, `to`/`NOT_AFTER_FROM|IN_FUTURE`; `details` = `{coverageFrom, dataThrough, now}`.
+- Остальные отказы инцидента получили поле: эффект → `stateOverride|lossReasonId`, нет простоя/открытая причина после `dataThrough` → `lossReasonId|from`, пересечения (сервисная проверка и exclusion constraint) → `stateOverride|lossReasonId` (`incidentIds` в details для сервисной проверки), длина текста → `comment|author`. Сообщения переведены.
+- Тест `incidentRangeIsCheckedToTheMillisecondAndNamesTheField`: `from` на 335 мс раньше покрытия → 422 path `from`; `to` в будущем → path `to`; ровно `coverageFrom` → 201; пересечение состояний → path `stateOverride`.
+- Docker JDK 21 `mvn -B verify`: 88 tests, 0 failures.

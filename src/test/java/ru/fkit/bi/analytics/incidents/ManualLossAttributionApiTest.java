@@ -117,6 +117,30 @@ class ManualLossAttributionApiTest {
         .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("LOSS_REASON_NOT_ASSIGNABLE"));
   }
 
+  @Test @WithMockUser void incidentRangeIsCheckedToTheMillisecondAndNamesTheField() throws Exception {
+    Scenario s=setupEnterpriseAndMachine();
+    Instant now=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+    Instant coverage=now.minusSeconds(120).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).plusMillis(335);
+    seedReadyState(s.machine(),coverage,now.minusSeconds(60));
+    // HAR 2026-10-13: the form sent coverageFrom truncated to whole seconds.
+    mvc.perform(post("/api/v1/machines/"+s.machine()+"/incidents").header("Idempotency-Key","range-before-coverage")
+        .contentType(MediaType.APPLICATION_JSON).content(incident(coverage.minusMillis(335),coverage.plusSeconds(60),"SETUP",null,null)))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("INVALID_INCIDENT_RANGE"))
+        .andExpect(jsonPath("$.fieldErrors[0].path").value("from")).andExpect(jsonPath("$.fieldErrors[0].code").value("BEFORE_COVERAGE"))
+        .andExpect(jsonPath("$.details.coverageFrom").value(coverage.toString()));
+    mvc.perform(post("/api/v1/machines/"+s.machine()+"/incidents").header("Idempotency-Key","range-future-to-01")
+        .contentType(MediaType.APPLICATION_JSON).content(incident(coverage,now.plusSeconds(600),"SETUP",null,null)))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.fieldErrors[0].path").value("to"))
+        .andExpect(jsonPath("$.fieldErrors[0].code").value("IN_FUTURE"));
+    mvc.perform(post("/api/v1/machines/"+s.machine()+"/incidents").header("Idempotency-Key","range-exact-coverage")
+        .contentType(MediaType.APPLICATION_JSON).content(incident(coverage,coverage.plusSeconds(60),"SETUP",null,null)))
+        .andExpect(status().isCreated());
+    mvc.perform(post("/api/v1/machines/"+s.machine()+"/incidents").header("Idempotency-Key","range-state-overlap")
+        .contentType(MediaType.APPLICATION_JSON).content(incident(coverage.plusSeconds(30),null,"PLANNED_STOP",null,null)))
+        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INCIDENT_STATE_OVERLAP"))
+        .andExpect(jsonPath("$.fieldErrors[0].path").value("stateOverride"));
+  }
+
   @Test @WithMockUser void incidentListCursorPagesAreStableAndMalformedCursorIsRejected() throws Exception {
     Scenario s=setupEnterpriseAndMachine();
     Instant now=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS),through=now.minusSeconds(1),base=now.minusSeconds(40);
