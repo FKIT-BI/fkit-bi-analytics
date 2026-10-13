@@ -51,7 +51,7 @@ final class HistoricalStateReconstructor {
       if(deadline!=null&&!deadline.at().isAfter(eventAt)&&deadline.at().isBefore(to)){
         Instant at=deadline.at();MachineStateEvaluator.Result result=evaluate(config,samples,at,lastObserved,lastReceived,coverageFrom,current,timers);
         timers=new HashMap<>(result.timers());current=new MachineStateEvaluator.Current(result.state(),result.ruleId(),result.effectiveFrom());
-        if(!Objects.equals(state,result.state())){Instant boundary=clip(result.effectiveFrom(),from,to);if(boundary.isAfter(stateFrom)){intervals.add(new Interval(stateFrom,boundary,state));state= result.state();stateFrom=boundary;}}
+        if(!Objects.equals(state,result.state())){stateFrom=close(intervals,stateFrom,clip(result.effectiveFrom(),from,to),state);state=result.state();}
         deadline=result.deadline();if(++steps>500_000)throw new IllegalArgumentException("REPLAY_EVENT_LIMIT");continue;
       }
       if(index>=events.size())break;
@@ -65,11 +65,11 @@ final class HistoricalStateReconstructor {
       } while(true);
       MachineStateEvaluator.Result result=evaluate(config,samples,at,lastObserved,lastReceived,coverageFrom,current,timers);
       timers=new HashMap<>(result.timers());current=new MachineStateEvaluator.Current(result.state(),result.ruleId(),result.effectiveFrom());
-      if(!Objects.equals(state,result.state())){Instant boundary=clip(result.effectiveFrom(),from,to);if(boundary.isAfter(stateFrom)){intervals.add(new Interval(stateFrom,boundary,state));state=result.state();stateFrom=boundary;}}
+      if(!Objects.equals(state,result.state())){stateFrom=close(intervals,stateFrom,clip(result.effectiveFrom(),from,to),state);state=result.state();}
       deadline=result.deadline();if(++steps>500_000)throw new IllegalArgumentException("REPLAY_EVENT_LIMIT");
     }
     MachineStateEvaluator.Result last=evaluate(config,samples,to,lastObserved,lastReceived,coverageFrom,current,timers);
-    if(!Objects.equals(state,last.state())){Instant boundary=clip(last.effectiveFrom(),from,to);if(boundary.isAfter(stateFrom)){intervals.add(new Interval(stateFrom,boundary,state));state=last.state();stateFrom=boundary;}}
+    if(!Objects.equals(state,last.state())){stateFrom=close(intervals,stateFrom,clip(last.effectiveFrom(),from,to),state);state=last.state();}
     intervals.add(new Interval(stateFrom,null,state));return List.copyOf(intervals);
   }
 
@@ -78,5 +78,11 @@ final class HistoricalStateReconstructor {
     return evaluator.evaluate(config,signals(samples,at),observed,received,coverageFrom,at,current,timers);
   }
   private Map<UUID,MachineStateEvaluator.Signal> signals(Map<UUID,Sample> samples,Instant at){Map<UUID,MachineStateEvaluator.Signal> signals=new HashMap<>();samples.forEach((id,s)->{String freshness=s.value==null||s.observed==null?"NO_DATA":at.isBefore(s.observed.plusMillis(s.spec.staleAfterMs()))?"FRESH":"STALE";signals.put(id,new MachineStateEvaluator.Signal(s.spec.valueType(),s.value,s.observed,s.spec.staleAfterMs(),freshness));});return signals;}
+  /** Closes the open interval at a transition. A transition at (or before) the open interval start replaces its
+   *  state instead of being dropped, e.g. when a replay anchor starts exactly where its own events change the state. */
+  private Instant close(List<Interval> intervals,Instant stateFrom,Instant boundary,String state){
+    if(!boundary.isAfter(stateFrom))return stateFrom;
+    intervals.add(new Interval(stateFrom,boundary,state));return boundary;
+  }
   private Instant clip(Instant value,Instant from,Instant to){if(value.isBefore(from))return from;if(value.isAfter(to))return to;return value;}
 }

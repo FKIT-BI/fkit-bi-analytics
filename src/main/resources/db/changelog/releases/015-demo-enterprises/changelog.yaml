@@ -1,0 +1,22 @@
+databaseChangeLog:
+  - include:
+      file: 001-demo-enterprises-shifts.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 002-demo-lines-machines.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 003-demo-components-signals.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 004-demo-state-configuration.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 005-demo-loss-reasons.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 006-demo-generation-scenarios.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 007-demo-activate-machines.sql
+      relativeToChangelogFile: true
